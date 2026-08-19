@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "Car Hero Provider",
+    "slug": "car-hero-provider",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/carhero-app-icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F6F7F9"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#F6F7F9"
+      },
+      "edgeToEdgeEnabled": true
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-font"
+    ],
+    "extra": {
+      "apiBaseUrl": null
+    }
+  }
+}
