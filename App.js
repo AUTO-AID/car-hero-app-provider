@@ -12,9 +12,20 @@ import { useFonts } from "expo-font";
 
 import { colors } from "./src/theme/theme";
 import { qaState } from "./src/services/qa";
+import { StatusBarScrim } from "./src/components/ui";
+import { callNumber } from "./src/services/contact";
+import { SUPPORT_PHONE } from "./src/services/demo";
 
 import LoginScreen from "./src/screens/Auth/LoginScreen";
 import HomeScreen from "./src/screens/Main/HomeScreen";
+
+// استعادة كلمة المرور — الأربع منسوخة حرفياً من تطبيق العميل، ولهذا تُقاد
+// بعقد الخصائص نفسه (onSubmit · onBack · onLogin · loading · error) لا بكائن
+// `nav`: تغيير العقد كان يكسر مقارنة diff ويجعل نقل أي تحسين لاحق تخميناً.
+import ForgotPasswordScreen from "./src/screens/Auth/ForgotPasswordScreen";
+import OtpScreen from "./src/screens/Auth/OtpScreen";
+import ResetPasswordScreen from "./src/screens/Auth/ResetPasswordScreen";
+import PasswordChangedScreen from "./src/screens/Auth/PasswordChangedScreen";
 
 // دورة الطلب — من الوصول إلى الإتمام
 import NewRequestScreen from "./src/screens/Order/NewRequestScreen";
@@ -24,6 +35,7 @@ import ArrivedScreen from "./src/screens/Order/ArrivedScreen";
 import InServiceScreen from "./src/screens/Order/InServiceScreen";
 import CompletedScreen from "./src/screens/Order/CompletedScreen";
 import MyRequestsScreen from "./src/screens/Order/MyRequestsScreen";
+import PastRequestScreen from "./src/screens/Order/PastRequestScreen";
 
 // الحساب والتنبيهات
 import NotificationsScreen from "./src/screens/Account/NotificationsScreen";
@@ -36,6 +48,7 @@ const TAB_STEPS = ["home", "myRequests", "notifications", "profile"];
 
 const ROUTE_TO_STEP = {
   Login: "login",
+  ForgotPassword: "forgotPassword",
   Home: "home",
   NewRequest: "newRequest",
   RequestDetails: "requestDetails",
@@ -44,6 +57,7 @@ const ROUTE_TO_STEP = {
   InService: "inService",
   Completed: "completed",
   MyRequests: "myRequests",
+  PastRequest: "pastRequest",
   Notifications: "notifications",
   Profile: "profile",
 };
@@ -124,6 +138,57 @@ function Root({ fontsReady = true }) {
 
   const route = useMemo(() => ({ params: routeParams }), [routeParams]);
 
+  // ============================================================
+  //  استعادة كلمة المرور — حالة التدفّق
+  //
+  //  الحالة هنا لا في الشاشات، تماماً كما في جذر تطبيق العميل: الرقم يعبر
+  //  ثلاث شاشات (طلب ← رمز ← كلمة جديدة)، وحفظه داخل إحداها يعني تمريره
+  //  يدوياً بين الباقي أو إعادة سؤال المستخدم عنه — وإعادة السؤال في أسوأ
+  //  لحظة (فشل الدخول) هي أول احتكاك يجب إلغاؤه.
+  //
+  //  **لا خادم بعد.** كل معالج أدناه ينتقل محلّياً، وموضع النداء الحقيقي
+  //  معلّم بـ TODO. عند الربط تُنسخ `authApi.js` من تطبيق العميل وتُستبدل
+  //  أجسام المعالجات وحدها — الشاشات لا تُلمس لأنها تتلقّى loading/error
+  //  كخصائص أصلاً.
+  // ============================================================
+  const [authPhone, setAuthPhone] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState("");
+
+  // الخطأ يُصفَّر مع كل انتقال: رسالة خطأ من شاشة سابقة تظهر فوق شاشة جديدة
+  // تُقرأ كخطأ في هذه الشاشة.
+  const goAuth = (nextStep, params) => {
+    setAuthError("");
+    setRouteParams(params || {});
+    setStep(nextStep);
+  };
+
+  const handleForgotPassword = ({ phone }) => {
+    // TODO عند الربط: await authApi.forgotPassword({ phone })
+    setAuthPhone(phone);
+    goAuth("otp");
+  };
+
+  // لا نقطة تحقّق مستقلّة للرمز في عقد العميل أيضاً: يُحمل حتى شاشة إعادة
+  // التعيين ويُرسل معها.
+  const handleOtpConfirm = () => goAuth("resetPassword");
+
+  // TODO عند الربط: await authApi.forgotPassword({ phone: authPhone })
+  const handleOtpResend = () => setAuthError("");
+
+  const handleResetPassword = () => {
+    // TODO عند الربط: await authApi.resetPassword({ phone, code, newPassword })
+    goAuth("passwordChanged");
+  };
+
+  // نهاية التدفّق: تصفير المكدّس فلا يعيد زرّ الرجوع المستخدم إلى شاشات
+  // انتهى دورها (رمز مستهلَك، كلمة مرور حُفظت).
+  const leaveRecovery = () => {
+    setNavStack([]);
+    setAuthPhone("");
+    goAuth("login");
+  };
+
   // الخطوط جزء من الهوية لا زينة: عرض الشاشات بخطّ النظام ثم قلبها إلى Cairo
   // يُحدث قفزة تخطيط كاملة. نمسك الشاشة الأولى على خلفية العلامة حتى تجهز.
   if (!fontsReady) return <View style={{ flex: 1, backgroundColor: colors.screenBg }} />;
@@ -132,6 +197,53 @@ function Root({ fontsReady = true }) {
     <View style={{ flex: 1, backgroundColor: colors.screenBg }}>
       {/* الدخول */}
       {step === "login" && <LoginScreen navigation={nav} route={route} />}
+
+      {/* استعادة كلمة المرور — أربع شاشات بعقد خصائص تطبيق العميل نفسه.
+          الدخول باسم مستخدم والاستعادة برقم الهاتف: الرقم هو ما يملك الفنّي
+          وسيلة استقباله (واتساب)، واسم المستخدم تختاره الإدارة وقد لا يذكره
+          أصلاً — وهو سبب وقوفه هنا. */}
+      {step === "forgotPassword" && (
+        <ForgotPasswordScreen
+          initialPhone={authPhone}
+          loading={authLoading}
+          error={authError}
+          onSubmit={handleForgotPassword}
+          onBack={() => goAuth("login")}
+          onLogin={() => goAuth("login")}
+        />
+      )}
+
+      {step === "otp" && (
+        <OtpScreen
+          mode="recovery"
+          phone={authPhone}
+          loading={authLoading}
+          serverError={authError}
+          onConfirm={handleOtpConfirm}
+          onResend={handleOtpResend}
+          // «تعديل الرقم» يعود إلى الشاشة التي يُدخَل فيها الرقم لا إلى الدخول:
+          // الخطأ في الرقم أشيع أسباب عدم وصول الرمز، وإخفاء المخرج يحوّله
+          // إلى طريق مسدود.
+          onChangePhone={() => goAuth("forgotPassword")}
+          onBack={() => goAuth("forgotPassword")}
+          // «تواصل مع الدعم» بعد محاولتين فاشلتين: حساب الفنّي من الإدارة،
+          // فهي جهة الدعم الفعلية — لا صندوق بريد عام.
+          onSupport={() => callNumber(SUPPORT_PHONE)}
+        />
+      )}
+
+      {step === "resetPassword" && (
+        <ResetPasswordScreen
+          loading={authLoading}
+          error={authError}
+          onSubmit={handleResetPassword}
+          onBack={() => goAuth("otp")}
+          onRequestNewCode={() => goAuth("forgotPassword")}
+          onLogin={leaveRecovery}
+        />
+      )}
+
+      {step === "passwordChanged" && <PasswordChangedScreen onDone={leaveRecovery} />}
 
       {/* الرئيسية — مفتاح الاتصال وحالة الفنّي */}
       {step === "home" && <HomeScreen navigation={nav} route={route} />}
@@ -144,10 +256,19 @@ function Root({ fontsReady = true }) {
       {step === "inService" && <InServiceScreen navigation={nav} route={route} />}
       {step === "completed" && <CompletedScreen navigation={nav} route={route} />}
 
+      {/* سجلّ طلب منتهٍ — للقراءة فقط، لا يشارك دورة الطلب النشِط */}
+      {step === "pastRequest" && <PastRequestScreen navigation={nav} route={route} />}
+
       {/* الشريط السفلي */}
       {step === "myRequests" && <MyRequestsScreen navigation={nav} route={route} />}
       {step === "notifications" && <NotificationsScreen navigation={nav} route={route} />}
       {step === "profile" && <ProfileScreen navigation={nav} route={route} />}
+
+      {/* شريط معتم بارتفاع شريط الحالة، يُرسم **فوق** كل المحتوى — نفس موضعه
+          في جذر تطبيق العميل. بدونه يصعد النصّ خلف الساعة والبطارية عند
+          التمرير ويبقى مرئياً هناك، لأن `edgeToEdgeEnabled` يجعل التطبيق
+          يرسم خلف الشريط الشفّاف. */}
+      <StatusBarScrim />
     </View>
   );
 }

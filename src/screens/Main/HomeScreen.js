@@ -1,138 +1,308 @@
 // ============================================================
-//  HomeScreen  —  ٢/٣ · الرئيسية (متصل / غير متصل)
+//  HomeScreen  —  ٢ · الرئيسية (متصل / غير متصل)
 // ============================================================
 
-import React, { useState } from 'react';
-import { View, Pressable, StyleSheet } from 'react-native';
-import Text from '../../components/AppText';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Bell, Moon, Power, Broadcast, CheckCircle, ClockCountdown, MagnifyingGlass } from 'phosphor-react-native';
-import { colors, gradients, radius, shadow } from '../../theme/theme';
-import ProviderNav from '../../components/ProviderNav';
+import React, { useEffect, useRef, useState } from "react";
+import { Animated, Easing, ScrollView, StyleSheet, View } from "react-native";
+import Text from "../../components/AppText";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
+import {
+  Bell,
+  Broadcast,
+  CheckCircle,
+  ClockCountdown,
+  MagnifyingGlass,
+  Moon,
+  Power,
+} from "phosphor-react-native";
+import { IconButton, LinkText, SectionHeader } from "../../components/ui";
+import {
+  Card,
+  GlassButton,
+  GradientButton,
+  GradientOrb,
+  ProviderScreen,
+  StatTile,
+  navClearance,
+} from "../../components/providerUi";
+import ProviderNav from "../../components/ProviderNav";
+import useReducedMotion from "../../hooks/useReducedMotion";
+import { colors, font, gradients, onDark, providerMotion, providerRadius, spacing } from "../../theme/theme";
+import { PROVIDER } from "../../services/demo";
 
-// اسم الفنّي — نقطة واحدة تُستبدل بالمستخدم الحقيقي عند ربط المصادقة.
-// الحرف الأول يُشتقّ منه لا يُكتب يدوياً، وإلا انفصل الحرف عن الاسم عند تغييره.
-const PROVIDER_NAME = 'م. سامر خالد';
-const initial = PROVIDER_NAME.replace(/^م\.\s*/, '').trim().charAt(0) || 'ف';
+// اسم الفنّي من مصدر واحد مع «حسابي» — كان مكتوباً في الشاشتين، فتغييره في
+// إحداهما يجعل التطبيق يناديه باسمين. الحرف الأول يُشتقّ منه لا يُكتب يدوياً.
+const initial = PROVIDER.name.replace(/^م\.\s*/, "").trim().charAt(0) || "ف";
 
-function StatTile({ Icon, value, label }) {
+// نبضة «متصل»: الحلقة وحدها تتنفّس، لا البطاقة — تحريك البطاقة كاملة يزحزح
+// النصّ تحتها فيصعب قراءته. وتتوقّف كلياً مع «تقليل الحركة».
+function LiveHalo({ children }) {
+  const reduceMotion = useReducedMotion();
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (reduceMotion) {
+      pulse.setValue(0);
+      return undefined;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: providerMotion.pulse,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: providerMotion.pulse,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [reduceMotion, pulse]);
+
+  const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.18] });
+  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.45, 0] });
+
   return (
-    <View style={s.stat}>
-      <View style={s.statIcon}><Icon size={24} weight="fill" color={colors.primaryLight} /></View>
-      <View><Text style={s.statValue}>{value}</Text><Text style={s.statLabel}>{label}</Text></View>
+    <View style={s.haloWrap}>
+      <Animated.View style={[s.haloPulse, { transform: [{ scale }], opacity }]} pointerEvents="none" />
+      {children}
     </View>
   );
 }
 
 export default function HomeScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const [online, setOnline] = useState(false);
-  const goTab = (k) => { if (k === 'orders') navigation?.navigate?.('MyRequests'); if (k === 'alerts') navigation?.navigate?.('Notifications'); if (k === 'account') navigation?.navigate?.('Profile'); };
+
+  const goTab = (key) => {
+    if (key === "orders") navigation?.navigate?.("MyRequests");
+    if (key === "alerts") navigation?.navigate?.("Notifications");
+    if (key === "account") navigation?.navigate?.("Profile");
+  };
 
   return (
-    <View style={s.root}>
-      {/* الترويسة */}
-      <View style={s.topbar}>
-        <View style={s.greetRow}>
-          <LinearGradient colors={gradients.logoTile} style={s.avatar}><Text style={s.avatarText}>{initial}</Text></LinearGradient>
-          <View><Text style={s.greetHi}>مرحبًا،</Text><Text style={s.greetName}>{PROVIDER_NAME}</Text></View>
-        </View>
-        <Pressable style={s.bell} onPress={() => navigation?.navigate?.('Notifications')}>
-          <Bell size={22} color={colors.primary} /><View style={s.bellDot} />
-        </Pressable>
-      </View>
-
-      {online ? (
-        <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.cardOn}>
-          <View style={s.cardCircle} />
-          <View style={s.ringWrap}>
-            <View style={s.iconCircleWhite}><Broadcast size={42} weight="fill" color={colors.success} /></View>
-          </View>
-          <View style={s.statusRow}>
-            <View style={s.liveDot} />
-            <Text style={s.statusOnText}>أنت متصل الآن</Text>
-          </View>
-          <Text style={s.descOn}>جاهز لاستقبال طلبات الخدمة في منطقتك.</Text>
-          <Pressable style={s.toggleGlass} onPress={() => setOnline(false)}>
-            <Power size={20} weight="fill" color="#fff" /><Text style={s.toggleGlassText}>إيقاف الاتصال</Text>
-          </Pressable>
-        </LinearGradient>
-      ) : (
-        <View style={s.cardOff}>
-          <View style={s.offRing}><View style={s.offInner}><Moon size={38} weight="fill" color="#a79fb3" /></View></View>
-          <Text style={s.statusOffText}>غير متاح حاليًا</Text>
-          <Text style={s.descOff}>أنت غير متصل الآن ولن تصلك طلبات جديدة. فعّل الاتصال لبدء استقبال الطلبات.</Text>
-          <Pressable style={s.toggleOn} onPress={() => setOnline(true)}>
-            <LinearGradient colors={gradients.success} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.toggleOnGrad}>
-              <Power size={22} weight="fill" color="#fff" /><Text style={s.toggleOnText}>تشغيل الاتصال</Text>
+    <ProviderScreen padded={false} withNav bottomInset={false}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[s.scroll, { paddingBottom: navClearance(insets.bottom) }]}
+      >
+        <View style={s.topbar}>
+          <View style={s.greetRow}>
+            <LinearGradient colors={gradients.logoTile} style={s.avatar}>
+              <Text style={s.avatarText}>{initial}</Text>
             </LinearGradient>
-          </Pressable>
-        </View>
-      )}
-
-      {online ? (
-        <View style={{ paddingHorizontal: 22, marginTop: 18 }}>
-          <Text style={s.sectionTitle}>لا يوجد طلب نشِط</Text>
-          <View style={s.waitCard}>
-            <View style={s.waitIcon}><MagnifyingGlass size={28} color={colors.primaryLight} /></View>
-            <Text style={s.waitTitle}>بانتظار طلب جديد</Text>
-            <Text style={s.waitDesc}>سيتم إشعارك فورًا عند وصول طلب خدمة قريب منك.</Text>
-            {/* أزرار للتنقّل بين حالات التصميم أثناء التطوير */}
-            <Pressable onPress={() => navigation?.navigate?.('NewRequest')} style={s.devLink}><Text style={s.devLinkText}>محاكاة وصول طلب ←</Text></Pressable>
+            <View style={s.greetText}>
+              <Text style={s.greetHi}>مرحباً،</Text>
+              <Text style={s.greetName} numberOfLines={1}>
+                {PROVIDER.name}
+              </Text>
+            </View>
+          </View>
+          <View>
+            <IconButton
+              label="الإشعارات، تنبيه غير مقروء"
+              onPress={() => navigation?.navigate?.("Notifications")}
+              icon={<Bell size={21} color={colors.textHeading} />}
+            />
+            <View style={s.bellDot} pointerEvents="none" />
           </View>
         </View>
-      ) : (
-        <View style={s.statsRow}>
-          <StatTile Icon={CheckCircle} value="6" label="طلبات اليوم" />
-          <StatTile Icon={ClockCountdown} value="—" label="طلب نشِط" />
-        </View>
-      )}
 
-      <ProviderNav active="home" onTab={goTab} />
-    </View>
+        {online ? (
+          <LinearGradient
+            colors={gradients.primary}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={s.cardOn}
+          >
+            <GradientOrb />
+            <LiveHalo>
+              <View style={s.iconCircleWhite}>
+                <Broadcast size={42} weight="fill" color={colors.success} />
+              </View>
+            </LiveHalo>
+            <View style={s.statusRow}>
+              <View style={s.liveDot} />
+              <Text style={s.statusOnText} accessibilityRole="header">
+                أنت متصل الآن
+              </Text>
+            </View>
+            <Text style={s.descOn}>جاهز لاستقبال طلبات الخدمة في منطقتك.</Text>
+            <GlassButton
+              label="إيقاف الاتصال"
+              icon={<Power size={20} weight="fill" color={onDark.text} />}
+              onPress={() => setOnline(false)}
+              accessibilityHint="يوقف استقبال الطلبات الجديدة"
+              style={s.toggleGlass}
+            />
+          </LinearGradient>
+        ) : (
+          <Card style={s.cardOff} raised>
+            <View style={s.offRing}>
+              <View style={s.offInner}>
+                <Moon size={38} weight="fill" color={colors.offIcon} />
+              </View>
+            </View>
+            <Text style={s.statusOffText} accessibilityRole="header">
+              غير متاح حالياً
+            </Text>
+            <Text style={s.descOff}>
+              أنت غير متصل الآن ولن تصلك طلبات جديدة. فعّل الاتصال لبدء استقبال الطلبات.
+            </Text>
+            <GradientButton
+              label="تشغيل الاتصال"
+              tone="success"
+              icon={<Power size={22} weight="fill" color={colors.onPrimary} />}
+              onPress={() => setOnline(true)}
+              accessibilityHint="يجعلك مرئياً للعملاء القريبين"
+              style={s.toggleOn}
+            />
+          </Card>
+        )}
+
+        {online ? (
+          <View style={s.section}>
+            <SectionHeader title="لا يوجد طلب نشِط" />
+            <Card style={s.waitCard} dashed>
+              <View style={s.waitIcon}>
+                <MagnifyingGlass size={28} color={colors.primaryLight} />
+              </View>
+              <Text style={s.waitTitle}>بانتظار طلب جديد</Text>
+              <Text style={s.waitDesc}>سيتم إشعارك فوراً عند وصول طلب خدمة قريب منك.</Text>
+              {/* مدخل تجربة التصميم — يُحذف عند ربط البثّ اللحظي */}
+              {__DEV__ ? (
+                <LinkText onPress={() => navigation?.navigate?.("NewRequest")} style={s.devLink}>
+                  محاكاة وصول طلب ←
+                </LinkText>
+              ) : null}
+            </Card>
+          </View>
+        ) : (
+          <View style={s.statsRow}>
+            <StatTile Icon={CheckCircle} value="٦" label="طلبات اليوم" />
+            <StatTile Icon={ClockCountdown} value="—" label="طلب نشِط" />
+          </View>
+        )}
+      </ScrollView>
+
+      <ProviderNav active="home" onTab={goTab} unreadCount={1} />
+    </ProviderScreen>
   );
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.screenBg, paddingTop: 52 },
-  topbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 26 },
-  greetRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  avatar: { width: 46, height: 46, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.borderSoft },
-  avatarText: { fontSize: 18, fontWeight: '800', color: colors.primary },
-  greetHi: { fontSize: 12.5, color: colors.textMuted, textAlign: 'right' },
-  greetName: { fontSize: 16, fontWeight: '800', color: colors.textDark, textAlign: 'right' },
-  bell: { width: 46, height: 46, borderRadius: 14, backgroundColor: '#fff', borderWidth: 1, borderColor: colors.borderCard, alignItems: 'center', justifyContent: 'center', ...shadow.soft, shadowOpacity: 0.3 },
-  bellDot: { position: 'absolute', top: 10, right: 12, width: 8, height: 8, borderRadius: 4, backgroundColor: colors.danger, borderWidth: 1.5, borderColor: '#fff' },
+  scroll: { paddingHorizontal: spacing.xl, gap: spacing.xl },
 
-  cardOff: { marginHorizontal: 22, marginTop: 26, borderRadius: 28, backgroundColor: '#fff', borderWidth: 1, borderColor: colors.borderCard, padding: 32, alignItems: 'center', ...shadow.card, shadowOpacity: 0.2 },
-  offRing: { width: 118, height: 118, borderRadius: 59, borderWidth: 2, borderStyle: 'dashed', borderColor: '#d6d2dc', backgroundColor: '#eef0f3', alignItems: 'center', justifyContent: 'center' },
-  offInner: { width: 82, height: 82, borderRadius: 41, backgroundColor: '#f4f3f6', alignItems: 'center', justifyContent: 'center' },
-  statusOffText: { fontSize: 22, fontWeight: '800', color: colors.textDark, marginTop: 18 },
-  descOff: { fontSize: 14.5, color: colors.textBody, marginTop: 8, textAlign: 'center', lineHeight: 22 },
-  toggleOn: { width: '100%', marginTop: 22, borderRadius: radius.lg, overflow: 'hidden' },
-  toggleOnGrad: { height: 60, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
-  toggleOnText: { color: '#fff', fontSize: 17.5, fontWeight: '800' },
+  topbar: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
+  greetRow: { flex: 1, minWidth: 0, flexDirection: "row-reverse", alignItems: "center", gap: spacing.sm + 2 },
+  greetText: { flex: 1, minWidth: 0 },
+  avatar: {
+    width: 46,
+    height: 46,
+    borderRadius: providerRadius.tileSm,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+  },
+  avatarText: { fontSize: font.size.body, fontWeight: font.weight.bold, color: colors.primary },
+  greetHi: { fontSize: font.size.label, color: colors.textMuted, textAlign: "right" },
+  greetName: { fontSize: font.size.md, fontWeight: font.weight.bold, color: colors.textDark, textAlign: "right" },
+  bellDot: {
+    position: "absolute",
+    top: 4,
+    right: 6,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.danger,
+    borderWidth: 1.5,
+    borderColor: colors.surface,
+  },
 
-  cardOn: { marginHorizontal: 22, marginTop: 26, borderRadius: 28, padding: 30, alignItems: 'center', overflow: 'hidden', ...shadow.card, shadowOpacity: 0.5 },
-  cardCircle: { position: 'absolute', width: 180, height: 180, borderRadius: 90, backgroundColor: '#ffffff22', top: -60, left: -40 },
-  ringWrap: { width: 118, height: 118, alignItems: 'center', justifyContent: 'center' },
-  iconCircleWhite: { width: 90, height: 90, borderRadius: 45, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16 },
-  liveDot: { width: 11, height: 11, borderRadius: 6, backgroundColor: '#5fe6a3' },
-  statusOnText: { fontSize: 22, fontWeight: '800', color: '#fff' },
-  descOn: { fontSize: 14, color: '#f0e7fa', marginTop: 6, textAlign: 'center', lineHeight: 21 },
-  toggleGlass: { width: '100%', height: 56, marginTop: 20, borderRadius: radius.md, backgroundColor: '#ffffff22', borderWidth: 1, borderColor: '#ffffff44', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
-  toggleGlassText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  cardOff: { borderRadius: providerRadius.hero, padding: spacing.xxl + spacing.sm, alignItems: "center" },
+  offRing: {
+    width: 118,
+    height: 118,
+    borderRadius: 59,
+    borderWidth: 2,
+    borderStyle: "dashed",
+    borderColor: colors.offRingBorder,
+    backgroundColor: colors.offRing,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  offInner: {
+    width: 82,
+    height: 82,
+    borderRadius: 41,
+    backgroundColor: colors.offRingInner,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statusOffText: {
+    fontSize: font.size.title,
+    fontWeight: font.weight.bold,
+    color: colors.textDark,
+    marginTop: spacing.lg,
+  },
+  descOff: {
+    fontSize: font.size.body,
+    color: colors.textBody,
+    marginTop: spacing.sm,
+    textAlign: "center",
+    lineHeight: font.lineHeight.body,
+  },
+  toggleOn: { alignSelf: "stretch", marginTop: spacing.xl },
 
-  sectionTitle: { fontSize: 14, fontWeight: '800', color: colors.textHeading, paddingHorizontal: 4 },
-  waitCard: { marginTop: 10, backgroundColor: '#fff', borderWidth: 1, borderStyle: 'dashed', borderColor: '#d9cfe6', borderRadius: 22, padding: 26, alignItems: 'center', gap: 8 },
-  waitIcon: { width: 56, height: 56, borderRadius: 16, backgroundColor: colors.tint, alignItems: 'center', justifyContent: 'center' },
-  waitTitle: { fontSize: 15.5, fontWeight: '800', color: colors.textDark },
-  waitDesc: { fontSize: 13, color: colors.textMuted, textAlign: 'center', lineHeight: 20 },
-  devLink: { marginTop: 6 }, devLinkText: { fontSize: 13, fontWeight: '700', color: colors.primaryLight },
+  cardOn: {
+    borderRadius: providerRadius.hero,
+    padding: spacing.xxl + spacing.xs,
+    alignItems: "center",
+    overflow: "hidden",
+  },
+  haloWrap: { width: 118, height: 118, alignItems: "center", justifyContent: "center" },
+  haloPulse: { position: "absolute", width: 96, height: 96, borderRadius: 48, backgroundColor: onDark.live },
+  iconCircleWhite: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statusRow: { flexDirection: "row-reverse", alignItems: "center", gap: spacing.sm, marginTop: spacing.lg },
+  liveDot: { width: 11, height: 11, borderRadius: 6, backgroundColor: onDark.live },
+  statusOnText: { fontSize: font.size.title, fontWeight: font.weight.bold, color: onDark.text },
+  descOn: {
+    fontSize: font.size.md,
+    color: onDark.textSoft,
+    marginTop: spacing.xs + 2,
+    textAlign: "center",
+    lineHeight: 21,
+  },
+  toggleGlass: { alignSelf: "stretch", marginTop: spacing.xl },
 
-  statsRow: { flexDirection: 'row', gap: 14, paddingHorizontal: 22, marginTop: 18 },
-  stat: { flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: colors.borderCard, borderRadius: 20, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  statIcon: { width: 44, height: 44, borderRadius: 13, backgroundColor: colors.tint, alignItems: 'center', justifyContent: 'center' },
-  statValue: { fontSize: 20, fontWeight: '800', color: colors.textDark },
-  statLabel: { fontSize: 12.5, color: colors.textMuted },
+  section: { gap: spacing.sm },
+  waitCard: { padding: spacing.xxl, alignItems: "center", gap: spacing.sm },
+  waitIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: providerRadius.tile,
+    backgroundColor: colors.tint,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  waitTitle: { fontSize: font.size.body, fontWeight: font.weight.bold, color: colors.textDark },
+  waitDesc: { fontSize: font.size.sm, color: colors.textMuted, textAlign: "center", lineHeight: 20 },
+  devLink: { marginTop: spacing.xs },
+
+  statsRow: { flexDirection: "row-reverse", gap: spacing.md },
 });

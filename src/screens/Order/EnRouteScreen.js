@@ -1,78 +1,183 @@
 // ============================================================
-//  EnRouteScreen  —  ٦ · في الطريق (خريطة + bottom sheet)
+//  EnRouteScreen  —  ٥ · في الطريق (خريطة + طبقة سفلية)
 // ============================================================
 
-import React from 'react';
-import { View, Pressable, StyleSheet } from 'react-native';
-import Text from '../../components/AppText';
-import { LinearGradient } from 'expo-linear-gradient';
-import { NavigationArrow, TowTruck, MapPin, Tire, Phone, FlagCheckered } from 'phosphor-react-native';
-import { colors, gradients, radius, shadow } from '../../theme/theme';
+import React from "react";
+import { StyleSheet, View } from "react-native";
+import Text from "../../components/AppText";
+// `Truck` لا `TowTruck`: الأخيرة **غير موجودة في phosphor** أصلاً، فكانت تصل
+// `undefined` وتُسقط الشاشة كلها إلى صفحة بيضاء عند الضغط على «بدء التوجيه».
+// و`Truck` هي نفسها أيقونة السحب في تطبيق العميل (`ServiceCatalogScreen`)،
+// فالخدمة الواحدة ترتدي رمزاً واحداً في التطبيقين.
+import { FlagCheckered, MapPin, NavigationArrow, Phone, Tire, Truck } from "phosphor-react-native";
+import {
+  BottomSheet,
+  FloatingBar,
+  GradientButton,
+  IconTile,
+  MapCanvas,
+  ProviderScreen,
+  StatTile,
+} from "../../components/providerUi";
+import { PressableScale } from "../../components/ui";
+import { colors, font, layout, providerRadius, shadow, spacing } from "../../theme/theme";
+import { callNumber } from "../../services/contact";
+import { DEMO_CUSTOMER } from "../../services/demo";
 
 export default function EnRouteScreen({ navigation }) {
   return (
-    <View style={s.root}>
-      {/* الخريطة */}
-      <View style={s.map}>
-        <View style={s.roadA} /><View style={s.roadB} /><View style={s.roadV} />
-        <View style={s.providerMarker}><TowTruck size={20} weight="fill" color="#fff" /></View>
-        <View style={s.custMarker}><MapPin size={22} weight="fill" color="#fff" /></View>
-      </View>
+    // `wide`: الخريطة تملأ العرض ولا تُحصر في عمود — نفس ما يفعله تطبيق
+    // العميل في `InteractiveMapScreen`.
+    <ProviderScreen padded={false} topInset={false} bottomInset={false} wide style={s.root}>
+      <MapCanvas
+        rounded={false}
+        vertical
+        style={StyleSheet.absoluteFill}
+        accessibilityLabel="خريطة التوجيه: أنت على بُعد 2.4 كم من موقع العميل"
+      >
+        <View style={s.providerMarker}>
+          <Truck size={20} weight="fill" color={colors.onPrimary} />
+        </View>
+        <View style={s.custMarker}>
+          <MapPin size={22} weight="fill" color={colors.onPrimary} />
+        </View>
+      </MapCanvas>
 
-      {/* شارة علوية */}
-      <View style={s.topPill}>
-        <View style={s.pillIcon}><NavigationArrow size={20} weight="fill" color={colors.primary} /></View>
-        <View style={{ flex: 1 }}><Text style={s.pillTitle}>أنت في الطريق</Text><Text style={s.pillSub}>جارٍ إرسال موقعك للعميل</Text></View>
-        <View style={s.pillDot} />
-      </View>
+      <FloatingBar>
+        <View style={s.pill}>
+          <View style={s.pillIcon}>
+            <NavigationArrow size={20} weight="fill" color={colors.primary} />
+          </View>
+          <View style={s.pillText}>
+            <Text style={s.pillTitle} accessibilityRole="header">
+              أنت في الطريق
+            </Text>
+            <Text style={s.pillSub}>جارٍ إرسال موقعك للعميل</Text>
+          </View>
+          <View style={s.pillDot} />
+        </View>
+      </FloatingBar>
 
-      {/* البطاقة السفلية */}
-      <View style={s.sheet}>
-        <View style={s.grabber} />
+      <BottomSheet>
         <View style={s.custRow}>
-          <LinearGradient colors={gradients.primary} style={s.svcIcon}><Tire size={26} weight="fill" color="#fff" /></LinearGradient>
-          <View style={{ flex: 1 }}><Text style={s.custName}>أحمد الرواشدة · تغيير إطار</Text><Text style={s.custSub}>شارع المدينة المنورة</Text></View>
+          <IconTile Icon={Tire} size={52} gradient />
+          <View style={s.custText}>
+            <Text style={s.custName} numberOfLines={1}>
+              {DEMO_CUSTOMER.name} · تغيير إطار
+            </Text>
+            <Text style={s.custSub} numberOfLines={1}>
+              شارع المدينة المنورة
+            </Text>
+          </View>
         </View>
+
         <View style={s.statsRow}>
-          <View style={s.stat}><Text style={s.statVal}>2.4</Text><Text style={s.statLbl}>كم متبقّية</Text></View>
-          <View style={s.stat}><Text style={s.statVal}>7</Text><Text style={s.statLbl}>دقائق للوصول</Text></View>
-          <Pressable style={s.callStat}><Phone size={22} weight="fill" color={colors.success} /><Text style={s.callLbl}>اتصال</Text></Pressable>
+          <StatTile value="2.4" unit="كم" label="متبقّية" style={s.statSurface} />
+          <StatTile value="7" unit="دقائق" label="للوصول" style={s.statSurface} />
+          {/* كان الاتصال بطاقة إحصاء ثالثة شكلاً وزرّاً وظيفةً: بلا دور ولا
+              اسم مسموع. هو زرّ لا رقم، فيأخذ هيئة الزرّ وقياس البطاقة معاً
+              كي يبقى الصفّ مستوياً. */}
+          <PressableScale
+            onPress={() => callNumber(DEMO_CUSTOMER.phone)}
+            feedback="action"
+            accessibilityRole="button"
+            accessibilityLabel={`اتصال بالعميل ${DEMO_CUSTOMER.name}`}
+            accessibilityHint="يفتح تطبيق الهاتف على رقم العميل"
+            style={s.callTile}
+          >
+            <Phone size={22} weight="fill" color={colors.success} />
+            <Text style={s.callLabel}>اتصال</Text>
+          </PressableScale>
         </View>
-        <Pressable onPress={() => navigation?.navigate?.('Arrived')}>
-          <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.cta}>
-            <FlagCheckered size={22} weight="fill" color="#fff" /><Text style={s.ctaText}>لقد وصلت</Text>
-          </LinearGradient>
-        </Pressable>
-      </View>
-    </View>
+
+        <GradientButton
+          label="لقد وصلت"
+          icon={<FlagCheckered size={22} weight="fill" color={colors.onPrimary} />}
+          onPress={() => navigation?.navigate?.("Arrived")}
+          accessibilityHint="يبلغ العميل بوصولك ويفتح الخطوة التالية"
+          style={s.cta}
+        />
+      </BottomSheet>
+    </ProviderScreen>
   );
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#ece0f7' },
-  map: { ...StyleSheet.absoluteFillObject, backgroundColor: '#ece0f7' },
-  roadA: { position: 'absolute', top: '28%', left: '-6%', width: '112%', height: 18, backgroundColor: '#fff', transform: [{ rotate: '-8deg' }] },
-  roadB: { position: 'absolute', top: '58%', left: '-6%', width: '112%', height: 22, backgroundColor: '#fff', transform: [{ rotate: '6deg' }] },
-  roadV: { position: 'absolute', top: 0, left: '44%', width: 16, height: '100%', backgroundColor: '#fff', transform: [{ rotate: '4deg' }] },
-  providerMarker: { position: 'absolute', left: 104, bottom: 200, width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primary, borderWidth: 4, borderColor: '#fff', alignItems: 'center', justifyContent: 'center', ...shadow.button },
-  custMarker: { position: 'absolute', right: 118, top: 130, width: 46, height: 46, borderRadius: 23, backgroundColor: colors.primaryLight, borderWidth: 4, borderColor: '#fff', alignItems: 'center', justifyContent: 'center', ...shadow.button },
-  topPill: { position: 'absolute', top: 52, left: 22, right: 22, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', borderRadius: 18, padding: 12, ...shadow.card, shadowOpacity: 0.35 },
-  pillIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.tint, alignItems: 'center', justifyContent: 'center' },
-  pillTitle: { fontSize: 15, fontWeight: '800', color: colors.textDark, textAlign: 'right' },
-  pillSub: { fontSize: 12.5, color: colors.textMuted, textAlign: 'right' },
+  root: { backgroundColor: colors.mapSurface },
+
+  providerMarker: {
+    position: "absolute",
+    left: 104,
+    bottom: 260,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primary,
+    borderWidth: 4,
+    borderColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    ...shadow.button,
+  },
+  custMarker: {
+    position: "absolute",
+    right: 118,
+    top: 150,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: colors.primaryLight,
+    borderWidth: 4,
+    borderColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    ...shadow.button,
+  },
+
+  pill: {
+    flexDirection: "row-reverse",
+    alignItems: "center",
+    gap: spacing.sm + 2,
+    backgroundColor: colors.surface,
+    borderRadius: providerRadius.tile + 2,
+    padding: spacing.md,
+    ...shadow.card,
+    shadowOpacity: 0.18,
+  },
+  pillIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: providerRadius.tileSm - 2,
+    backgroundColor: colors.tint,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pillText: { flex: 1, minWidth: 0 },
+  pillTitle: { fontSize: font.size.body, fontWeight: font.weight.bold, color: colors.textDark, textAlign: "right" },
+  pillSub: { fontSize: font.size.label, color: colors.textMuted, textAlign: "right" },
   pillDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.success },
-  sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, paddingHorizontal: 24, paddingTop: 12, paddingBottom: 30, ...shadow.card, shadowOffset: { width: 0, height: -14 } },
-  grabber: { width: 44, height: 5, borderRadius: 3, backgroundColor: colors.borderSoft, alignSelf: 'center', marginBottom: 16 },
-  custRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  svcIcon: { width: 52, height: 52, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  custName: { fontSize: 16.5, fontWeight: '800', color: colors.textDark, textAlign: 'right' },
-  custSub: { fontSize: 13, color: colors.textMuted, textAlign: 'right' },
-  statsRow: { flexDirection: 'row', gap: 12, marginTop: 16 },
-  stat: { flex: 1, backgroundColor: colors.screenBg, borderWidth: 1, borderColor: colors.borderCard, borderRadius: 16, padding: 12, alignItems: 'center' },
-  statVal: { fontSize: 20, fontWeight: '800', color: colors.textDark },
-  statLbl: { fontSize: 11.5, color: colors.textMuted },
-  callStat: { flex: 1, backgroundColor: colors.successBg, borderWidth: 1, borderColor: '#cdeeda', borderRadius: 16, padding: 12, alignItems: 'center', justifyContent: 'center' },
-  callLbl: { fontSize: 11.5, color: colors.success, fontWeight: '700', marginTop: 2 },
-  cta: { height: 60, borderRadius: radius.lg, marginTop: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, ...shadow.button },
-  ctaText: { fontSize: 18, fontWeight: '800', color: '#fff' },
+
+  custRow: { flexDirection: "row-reverse", alignItems: "center", gap: spacing.md + 2 },
+  custText: { flex: 1, minWidth: 0 },
+  custName: { fontSize: font.size.md, fontWeight: font.weight.bold, color: colors.textDark, textAlign: "right" },
+  custSub: { fontSize: font.size.sm, color: colors.textMuted, textAlign: "right" },
+
+  statsRow: { flexDirection: "row-reverse", gap: spacing.md, marginTop: spacing.lg },
+  statSurface: { backgroundColor: colors.screenBg },
+  callTile: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: layout.touchTarget,
+    borderRadius: providerRadius.tile,
+    padding: spacing.md,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+    backgroundColor: colors.successBg,
+    borderWidth: 1,
+    borderColor: colors.successRingMid,
+  },
+  callLabel: { fontSize: font.size.xs, fontWeight: font.weight.bold, color: colors.success },
+
+  cta: { marginTop: spacing.lg },
 });
