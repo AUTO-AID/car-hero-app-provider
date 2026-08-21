@@ -2,11 +2,11 @@
 //  InServiceScreen  —  ٧ · الخدمة قيد التنفيذ
 // ============================================================
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import Text from "../../components/AppText";
-import { Check, CheckCircle, Tire } from "phosphor-react-native";
-import { ConfirmSheet, StatusPill } from "../../components/ui";
+import { Check, CheckCircle } from "phosphor-react-native";
+import { ConfirmSheet, ErrorBanner, StatusPill } from "../../components/ui";
 import {
   Card,
   DetailRow,
@@ -14,30 +14,30 @@ import {
   ProviderScreen,
   ServiceRow,
 } from "../../components/providerUi";
+import { iconForService } from "../../components/serviceIcon";
 import { colors, font, spacing } from "../../theme/theme";
-import { DEMO_CUSTOMER } from "../../services/demo";
+import { formatDuration, secondsSince } from "../../services/datetime";
+import { errorFeedback, successFeedback } from "../../services/feedback";
+import { statusLabel } from "../../services/requestStatus";
+import { useSession } from "../../context/SessionContext";
+import useRequestDetail from "../../hooks/useRequestDetail";
 
-const STEPS = [
-  { key: "accepted", label: "قبول الطلب", done: true },
-  { key: "arrived", label: "الوصول للعميل", done: true },
-  { key: "working", label: "تنفيذ الخدمة الآن", active: true },
-];
-
-// «00:12:34» كانت نصّاً ثابتاً: مدّة معطّلة تُقرأ كخلل لا كتصميم. العدّاد
-// يبدأ من لحظة فتح الشاشة — وعند الربط يُستبدل مبدؤه بوقت البدء من الخادم.
-function useElapsed() {
-  const startedAt = useRef(Date.now());
-  const [elapsed, setElapsed] = useState(0);
+/**
+ * عدّاد المدّة يبدأ من `startedAt` القادم من الخادم لا من لحظة فتح الشاشة:
+ * الفنّي قد يخرج إلى «طلباتي» ويعود، وإعادة العدّ من الصفر كانت تمحو المدّة
+ * الحقيقية للخدمة — وهي رقم يُحتكم إليه لا زينة.
+ */
+function useElapsed(startedAt) {
+  const [elapsed, setElapsed] = useState(() => secondsSince(startedAt));
 
   useEffect(() => {
-    const id = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - startedAt.current) / 1000));
-    }, 1000);
+    setElapsed(secondsSince(startedAt));
+    if (!startedAt) return undefined;
+    const id = setInterval(() => setElapsed(secondsSince(startedAt)), 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [startedAt]);
 
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${pad(Math.floor(elapsed / 3600))}:${pad(Math.floor((elapsed % 3600) / 60))}:${pad(elapsed % 60)}`;
+  return formatDuration(elapsed);
 }
 
 function Step({ done, active, label }) {
@@ -51,27 +51,67 @@ function Step({ done, active, label }) {
   );
 }
 
-export default function InServiceScreen({ navigation }) {
+export default function InServiceScreen({ navigation, route }) {
+  const { completeService } = useSession();
+  const { request, error } = useRequestDetail({ route, navigation });
+
   const [confirm, setConfirm] = useState(false);
-  const duration = useElapsed();
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState("");
+
+  const duration = useElapsed(request?.timestamps?.startedAt);
+
+  // الخطوات تُشتقّ من طوابع الخادم لا من مصفوفة ثابتة: القائمة الثابتة كانت
+  // تعرض «الوصول للعميل ✓» حتى لو لم يُسجَّل الوصول أصلاً.
+  const steps = [
+    { key: "accepted", label: "قبول الطلب", done: !!request?.timestamps?.acceptedAt },
+    { key: "arrived", label: "الوصول للعميل", done: !!request?.timestamps?.startedAt },
+    { key: "working", label: "تنفيذ الخدمة الآن", active: true },
+  ];
+
+  const onComplete = async () => {
+    setConfirm(false);
+    if (busy || !request) return;
+    setBusy(true);
+    setActionError("");
+    try {
+      const updated = await completeService(request.id);
+      successFeedback();
+      navigation?.replace?.("Completed", { request: updated });
+    } catch (err) {
+      errorFeedback();
+      setActionError(err?.message || "تعذّر إنهاء الخدمة، حاول مجدداً");
+      setBusy(false);
+    }
+  };
 
   return (
     <ProviderScreen>
       <View style={s.chipRow}>
-        <StatusPill label="الخدمة قيد التنفيذ" tone="info" />
+        <StatusPill label={statusLabel(request?.status) || "الخدمة قيد التنفيذ"} tone="info" />
       </View>
 
+      <ErrorBanner message={actionError || error} style={s.error} />
+
       <Card style={s.card} raised>
-        <ServiceRow Icon={Tire} title="تغيير إطار" subtitle="طلب ‏#1042" size={60} />
+        <ServiceRow
+          Icon={iconForService(request?.serviceName)}
+          title={request?.serviceName || "خدمة"}
+          subtitle={`طلب ‏#${request?.shortNumber ?? "----"}`}
+          size={60}
+        />
         <View style={s.divider} />
-        <DetailRow label="العميل" value={DEMO_CUSTOMER.name} />
+        <DetailRow label="العميل" value={request?.customer?.name || "—"} />
         {/* كانت الحالة تُعرض كـ«IN_SERVICE» — رمز داخلي للخادم لا نصّ للفنّي */}
-        <DetailRow label="الحالة" valueNode={<StatusPill label="قيد التنفيذ" tone="info" />} />
+        <DetailRow
+          label="الحالة"
+          valueNode={<StatusPill label={statusLabel(request?.status)} tone="info" />}
+        />
         <DetailRow label="مدة التنفيذ" value={duration} last />
       </Card>
 
       <Card style={s.stepsCard}>
-        {STEPS.map((step) => (
+        {steps.map((step) => (
           <Step key={step.key} done={step.done} active={step.active} label={step.label} />
         ))}
       </Card>
@@ -79,9 +119,10 @@ export default function InServiceScreen({ navigation }) {
       <View style={s.spacer} />
 
       <GradientButton
-        label="إنهاء الخدمة"
+        label={busy ? "جارٍ الإنهاء…" : "إنهاء الخدمة"}
         tone="success"
         height={62}
+        disabled={busy || !request}
         icon={<CheckCircle size={22} weight="fill" color={colors.onPrimary} />}
         onPress={() => setConfirm(true)}
         accessibilityHint="يفتح تأكيداً قبل إغلاق الطلب"
@@ -93,14 +134,12 @@ export default function InServiceScreen({ navigation }) {
       <ConfirmSheet
         visible={confirm}
         title="تأكيد إنهاء الخدمة"
-        message="هل أنت متأكد من إنهاء هذه الخدمة؟ لا يمكن التراجع بعد التأكيد."
+        message="هل أنت متأكد من إنهاء هذه الخدمة؟ سيُطلب من العميل تأكيد الإتمام."
         confirmLabel="إنهاء الخدمة"
         cancelLabel="إلغاء"
+        busy={busy}
         onCancel={() => setConfirm(false)}
-        onConfirm={() => {
-          setConfirm(false);
-          navigation?.replace?.("Completed");
-        }}
+        onConfirm={onComplete}
       />
     </ProviderScreen>
   );
@@ -108,6 +147,7 @@ export default function InServiceScreen({ navigation }) {
 
 const s = StyleSheet.create({
   chipRow: { alignItems: "center" },
+  error: { marginTop: spacing.lg },
   card: { marginTop: spacing.xxl, padding: spacing.xl },
   divider: { height: 1, backgroundColor: colors.borderRow, marginTop: spacing.lg, marginBottom: spacing.xs },
 

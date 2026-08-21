@@ -7,8 +7,8 @@
 //  ما زال حيّاً.
 //
 //  فهذه للقراءة فقط وبلا إجراء أساسي إطلاقاً: وظيفتها أن تجيب على «ماذا حدث
-//  ومتى وبكم» حين يُسأل الفنّي بعد أيام. ولهذا `steps` بأوقاتها هي قلبها لا
-//  زينتها.
+//  ومتى وبكم» حين يُسأل الفنّي بعد أيام. ولهذا المسار الزمني — المبني من
+//  `history` القادم من الخادم — هو قلبها لا زينتها.
 // ============================================================
 
 import React from "react";
@@ -16,13 +16,14 @@ import { ScrollView, StyleSheet, View } from "react-native";
 import Text from "../../components/AppText";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Check, Clock, MapPin, User, X } from "phosphor-react-native";
-import { AppHeader, EmptyState, StatusPill } from "../../components/ui";
+import { AppHeader, EmptyState, SkeletonCard, StatusPill } from "../../components/ui";
 import { Card, DetailRow, ProviderScreen, ServiceRow } from "../../components/providerUi";
 import { iconForService } from "../../components/serviceIcon";
 import { colors, font, providerRadius, spacing } from "../../theme/theme";
 import { formatMoney } from "../../services/money";
-import { PAST_REQUESTS } from "../../services/demo";
-import { isCanceled, statusMeta } from "../../services/requestStatus";
+import { arabicNumber, formatDate, formatDuration, formatTime } from "../../services/datetime";
+import { isCanceled, OrderStatus, statusLabel, statusMeta } from "../../services/requestStatus";
+import useRequestDetail from "../../hooks/useRequestDetail";
 
 // ============================================================
 //  المسار الزمني — نظير `Timeline` في `OrderDetailScreen` عند العميل
@@ -60,35 +61,100 @@ function Timeline({ steps }) {
   );
 }
 
+/**
+ * يبني المسار من `history` القادم من الخادم.
+ *
+ * الخادم يسجّل كل انتقال بحالته ووقته وفاعله — وهو أدقّ مصدر ممكن. لكنه قد
+ * يحمل انتقالات لا تعني الفنّي شيئاً (تعديل إداري مثلاً)، فنعرض الحالات التي
+ * تخصّ عمله وحدها. وإن غاب السجلّ كلياً (طلبات قديمة سابقة لتفعيله) نعود إلى
+ * طوابع الطلب نفسه بدل عرض مسار فارغ.
+ */
+function buildSteps(request) {
+  const MEANINGFUL = [
+    OrderStatus.ACCEPTED,
+    OrderStatus.PROVIDER_ASSIGNED,
+    OrderStatus.PROVIDER_EN_ROUTE,
+    OrderStatus.PROVIDER_ARRIVED,
+    OrderStatus.IN_PROGRESS,
+    OrderStatus.AWAITING_CUSTOMER_CONFIRMATION,
+    OrderStatus.COMPLETED,
+    OrderStatus.CANCELLED,
+    OrderStatus.REJECTED,
+  ];
+
+  const fromHistory = (request.history || [])
+    .filter((entry) => MEANINGFUL.includes(entry.status))
+    .map((entry, index) => ({
+      key: `${entry.status}-${index}`,
+      label: statusLabel(entry.status),
+      time: entry.at ? formatTime(entry.at) : "—",
+      tone: isCanceled(entry.status) ? "danger" : undefined,
+    }));
+
+  if (fromHistory.length) return fromHistory;
+
+  const { timestamps = {} } = request;
+  return [
+    timestamps.acceptedAt && { key: "accepted", label: "قبول الطلب", time: formatTime(timestamps.acceptedAt) },
+    timestamps.startedAt && { key: "started", label: "بدء الخدمة", time: formatTime(timestamps.startedAt) },
+    timestamps.completedAt && { key: "done", label: "إنجاز الخدمة", time: formatTime(timestamps.completedAt) },
+    timestamps.cancelledAt && {
+      key: "cancelled",
+      label: "إلغاء الطلب",
+      time: formatTime(timestamps.cancelledAt),
+      tone: "danger",
+    },
+  ].filter(Boolean);
+}
+
+/** مدّة التنفيذ من الطوابع — لا تُخزَّن جاهزة على الخادم */
+function serviceDuration(timestamps = {}) {
+  const from = timestamps.startedAt;
+  const to = timestamps.completedAt || timestamps.completionRequestedAt;
+  if (!from || !to) return null;
+  const seconds = Math.floor((new Date(to).getTime() - new Date(from).getTime()) / 1000);
+  return seconds > 0 ? formatDuration(seconds) : null;
+}
+
 export default function PastRequestScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
-  const request = PAST_REQUESTS[route?.params?.id];
+  const { request, loading, error } = useRequestDetail({ route, navigation });
 
-  // طلب غير موجود ليس شاشة فارغة صامتة: القفزة التطويرية `?qa=pastRequest`
-  // تصل بلا معطيات، وكذلك أي رابط قديم بعد الربط بالخادم.
   if (!request) {
     return (
       <ProviderScreen padded={false} bottomInset={false}>
         <AppHeader title="تفاصيل الطلب" onBack={() => navigation?.goBack?.()} style={s.header} />
-        <EmptyState
-          title="تعذّر عرض هذا الطلب"
-          message="لم نعثر على سجلّ هذا الطلب. جرّب فتحه من قائمة «طلباتي»."
-          actionLabel="العودة إلى طلباتي"
-          onAction={() => navigation?.navigate?.("MyRequests")}
-        />
+        {loading ? (
+          <View style={s.loadingWrap}>
+            <SkeletonCard lines={2} showMedia />
+            <SkeletonCard lines={4} />
+          </View>
+        ) : (
+          // طلب غير موجود ليس شاشة فارغة صامتة: أي رابط قديم أو إشعار لطلب
+          // حُذف يصل إلى هنا، ويحتاج مخرجاً لا جداراً.
+          <EmptyState
+            title="تعذّر عرض هذا الطلب"
+            message={error || "لم نعثر على سجلّ هذا الطلب. جرّب فتحه من قائمة «طلباتي»."}
+            actionLabel="العودة إلى طلباتي"
+            onAction={() => navigation?.navigate?.("MyRequests")}
+          />
+        )}
       </ProviderScreen>
     );
   }
 
   const meta = statusMeta(request.status);
   const canceled = isCanceled(request.status);
-  const Icon = iconForService(request.service);
+  const Icon = iconForService(request.serviceName);
+  const steps = buildSteps(request);
+  const duration = serviceDuration(request.timestamps);
+  const startedAt = request.timestamps?.startedAt;
 
   return (
     <ProviderScreen padded={false} bottomInset={false}>
       <AppHeader
         title="تفاصيل الطلب"
-        subtitle={`طلب ‏#${request.id}`}
+        subtitle={`طلب ‏#${request.shortNumber}`}
         onBack={() => navigation?.goBack?.()}
         action={<StatusPill label={meta.label} tone={meta.tone} />}
         style={s.header}
@@ -99,31 +165,45 @@ export default function PastRequestScreen({ navigation, route }) {
         contentContainerStyle={[s.scroll, { paddingBottom: Math.max(insets.bottom, spacing.lg) + spacing.xl }]}
       >
         <Card raised>
-          {/* النغمة رمادية للملغى: أيقونة بنفسجية متدرّجة فوق طلب لم يقع
+          {/* النغمة حمراء للملغى: أيقونة بنفسجية متدرّجة فوق طلب لم يقع
               تعطي السجلّ مظهر الإنجاز. */}
           <ServiceRow
             Icon={Icon}
-            title={request.service}
-            subtitle={request.date}
+            title={request.serviceName || "خدمة"}
+            subtitle={formatDate(
+              request.timestamps?.completedAt ||
+                request.timestamps?.cancelledAt ||
+                request.timestamps?.createdAt,
+            )}
             size={56}
             tone={canceled ? [colors.dangerBg, colors.danger] : undefined}
           />
         </Card>
 
         <Card style={s.detailCard}>
-          <DetailRow Icon={User} label="العميل" value={request.customer} />
-          <DetailRow Icon={MapPin} label="الموقع" value={request.place} />
-          <DetailRow Icon={Clock} label="بدء الخدمة" value={request.startedAt} />
-          {request.duration ? <DetailRow label="مدة التنفيذ" value={request.duration} /> : null}
-          <DetailRow label="المسافة" value={request.distance} last />
+          <DetailRow Icon={User} label="العميل" value={request.customer?.name || "—"} />
+          <DetailRow Icon={MapPin} label="الموقع" value={request.location?.address || "غير محدّد"} />
+          {startedAt ? (
+            <DetailRow Icon={Clock} label="بدء الخدمة" value={formatTime(startedAt)} />
+          ) : null}
+          {duration ? <DetailRow label="مدة التنفيذ" value={duration} /> : null}
+          <DetailRow
+            label="المسافة"
+            value={request.distanceKm != null ? `${arabicNumber(request.distanceKm)} كم` : "—"}
+            last
+          />
         </Card>
 
-        <Text style={s.sectionTitle} accessibilityRole="header">
-          مسار الطلب
-        </Text>
-        <Card>
-          <Timeline steps={request.steps} />
-        </Card>
+        {steps.length ? (
+          <>
+            <Text style={s.sectionTitle} accessibilityRole="header">
+              مسار الطلب
+            </Text>
+            <Card>
+              <Timeline steps={steps} />
+            </Card>
+          </>
+        ) : null}
 
         {canceled ? (
           // سبب الإلغاء لا «٠ ل.س»: المبلغ الصفري يُقرأ خدمةً مجّانية لا
@@ -135,7 +215,9 @@ export default function PastRequestScreen({ navigation, route }) {
               </View>
               <View style={s.reasonCopy}>
                 <Text style={s.reasonLabel}>سبب الإلغاء</Text>
-                <Text style={s.reasonText}>{request.cancelReason}</Text>
+                <Text style={s.reasonText}>
+                  {request.cancellation?.reason || "لم يُذكر سبب."}
+                </Text>
               </View>
             </View>
           </Card>
@@ -145,10 +227,10 @@ export default function PastRequestScreen({ navigation, route }) {
               التفصيل المالي
             </Text>
             <Card style={s.detailCard}>
-              <DetailRow label="سعر الخدمة" value={formatMoney(request.price)} />
+              <DetailRow label="سعر الخدمة" value={formatMoney(request.payment?.amount)} />
               <DetailRow
                 label="المبلغ المحصَّل"
-                value={formatMoney(request.price)}
+                value={formatMoney(request.payment?.amount)}
                 tone={colors.success}
                 strong
                 last
@@ -170,6 +252,7 @@ export default function PastRequestScreen({ navigation, route }) {
 const s = StyleSheet.create({
   header: { paddingHorizontal: spacing.lg },
   scroll: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, gap: spacing.md + 2 },
+  loadingWrap: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, gap: spacing.md },
 
   detailCard: { paddingVertical: 0, paddingHorizontal: spacing.lg },
 

@@ -1,4 +1,4 @@
-import { Platform } from "react-native";
+import { Alert, Platform } from "react-native";
 import * as Haptics from "expo-haptics";
 
 // اهتزاز اللمس معطّل عبر التطبيق كلّه.
@@ -31,4 +31,18 @@ export function successFeedback() {
 
 export function errorFeedback() {
   run(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error));
+}
+
+/**
+ * إعلان قصير لحدث جاء من الخادم لا من ضغطة الفنّي: «ألغى العميل الطلب»،
+ * «انتهت المهلة». هذه لا تملك شاشة تعرضها — تقع بينما الفنّي ينظر إلى شيء آخر
+ * ثم تُقصيه عنه، فلا بدّ من جملة تقول لماذا انتقلت الشاشة تحته.
+ *
+ * `Alert` لا Toast: هي الوسيلة الوحيدة المتاحة بلا مكتبة إضافية، وهذه
+ * الأحداث نادرة ومهمّة بما يكفي لتستحقّ إيقافاً.
+ */
+export function notify(message, title = "تنبيه") {
+  if (!message) return;
+  errorFeedback();
+  Alert.alert(title, message, [{ text: "حسناً" }]);
 }

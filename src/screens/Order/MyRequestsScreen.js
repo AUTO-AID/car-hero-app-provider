@@ -1,13 +1,17 @@
 // ============================================================
 //  MyRequestsScreen  —  ٩ · طلباتي (نشطة / سابقة)
+//
+//  التبويبان يُجلبان من الخادم منفصلين (`scope=active|past`) لا يُرشَّحان
+//  محلياً: الترشيح المحلي يعني جلب صفحة مختلطة ثم إخفاء نصفها — فيظهر تبويب
+//  «سابقة» فارغاً بينما فيه عشرات الطلبات على الصفحة التالية.
 // ============================================================
 
-import React, { useState } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Text from "../../components/AppText";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MapPin } from "phosphor-react-native";
-import { EmptyState, PressableScale, StatusPill } from "../../components/ui";
+import { AsyncContent, PressableScale, StatusPill } from "../../components/ui";
 import {
   Card,
   IconTile,
@@ -19,56 +23,39 @@ import {
 import ProviderNav from "../../components/ProviderNav";
 import { iconForService } from "../../components/serviceIcon";
 import { colors, font, spacing } from "../../theme/theme";
-import { isCanceled, statusMeta } from "../../services/requestStatus";
-import { PAST_REQUESTS } from "../../services/demo";
+import { fetchRequests } from "../../services/providerApi";
+import { arabicNumber, formatDateTimeLabel } from "../../services/datetime";
+import { isCanceled, screenForRequest, statusMeta } from "../../services/requestStatus";
+import { useSession } from "../../context/SessionContext";
 
 const TABS = [
   { key: "active", label: "نشطة" },
   { key: "past", label: "سابقة" },
 ];
 
-// السابقة تُشتقّ من `PAST_REQUESTS` لا تُكتب هنا: البطاقة وشاشة السجلّ كانتا
-// ستحملان نسختين من الطلب نفسه، فيكفي تعديل إحداهما ليقول التطبيق شيئين.
-//
-// الترتيب صريح تنازلياً: مفاتيح الكائن الرقمية يرتّبها JS تصاعدياً بنفسه،
-// فكانت القائمة تبدأ بأقدم طلب — وأول ما يبحث عنه الفنّي هو آخر ما عمله.
-const PAST = Object.values(PAST_REQUESTS)
-  .sort((a, b) => Number(b.id) - Number(a.id))
-  .map((request) => ({
-    id: request.id,
-    title: request.service,
-    meta: `‏#${request.id} · ${request.date}`,
-    status: request.status,
-  }));
+function RequestCard({ request, onPress }) {
+  const state = statusMeta(request.status);
+  const canceled = isCanceled(request.status);
+  const Icon = iconForService(request.serviceName);
 
-const DATA = {
-  active: [
-    {
-      id: "1042",
-      title: "تغيير إطار",
-      meta: "‏#1042 · اليوم ٢:١٤ م",
-      status: "active",
-      place: "شارع المدينة المنورة · 2.4 كم",
-    },
-  ],
-  past: PAST,
-};
+  const place = [
+    request.address,
+    request.distanceKm != null ? `${arabicNumber(request.distanceKm)} كم` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
-function RequestCard({ title, meta, status, place, onPress }) {
-  const state = statusMeta(status);
-  const canceled = isCanceled(status);
-  const Icon = iconForService(title);
   return (
     <PressableScale
       onPress={onPress}
       disabled={!onPress}
       accessibilityRole={onPress ? "button" : undefined}
-      accessibilityLabel={`${title}، ${state.label}، ${meta}`}
+      accessibilityLabel={`${request.serviceName || "خدمة"}، ${state.label}، طلب ${request.shortNumber}`}
       style={s.cardWrap}
     >
       <Card>
         <View style={s.cardRow}>
-          {status === "active" ? (
+          {request.isActive ? (
             <IconTile Icon={Icon} size={48} gradient />
           ) : (
             <IconTile
@@ -79,10 +66,12 @@ function RequestCard({ title, meta, status, place, onPress }) {
           )}
           <View style={s.cardText}>
             <Text style={s.cardTitle} numberOfLines={1}>
-              {title}
+              {request.serviceName || "خدمة"}
             </Text>
             <Text style={s.cardMeta} numberOfLines={1}>
-              {meta}
+              {`‏#${request.shortNumber} · ${formatDateTimeLabel(
+                request.completedAt || request.cancelledAt || request.createdAt,
+              )}`}
             </Text>
           </View>
           <StatusPill label={state.label} tone={state.tone} />
@@ -102,7 +91,52 @@ function RequestCard({ title, meta, status, place, onPress }) {
 
 export default function MyRequestsScreen({ navigation }) {
   const insets = useSafeAreaInsets();
+  const { unreadNotifications } = useSession();
+
   const [tab, setTab] = useState("active");
+  // ذاكرة لكل تبويب: التبديل ذهاباً وإياباً كان يعيد الجلب في كل مرّة ويومض
+  // هيكلاً عظمياً فوق بيانات قُرئت قبل ثانيتين.
+  const [data, setData] = useState({ active: null, past: null });
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+
+  const aliveRef = useRef(true);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
+
+  const load = useCallback(
+    async (scope, { silent = false } = {}) => {
+      if (!silent) setLoading(true);
+      try {
+        const res = await fetchRequests({ scope });
+        if (!aliveRef.current) return;
+        setData((prev) => ({ ...prev, [scope]: res.requests || [] }));
+        setError("");
+      } catch (err) {
+        if (!aliveRef.current) return;
+        setError(err?.message || "تعذّر تحميل الطلبات.");
+      } finally {
+        if (aliveRef.current) setLoading(false);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    load(tab, { silent: data[tab] !== null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await load(tab, { silent: true });
+    setRefreshing(false);
+  };
 
   const goTab = (key) => {
     if (key === "home") navigation?.navigate?.("Home");
@@ -110,7 +144,13 @@ export default function MyRequestsScreen({ navigation }) {
     if (key === "account") navigation?.navigate?.("Profile");
   };
 
-  const list = DATA[tab] || [];
+  const list = data[tab];
+
+  // النشِط يفتح شاشة العمل الموافقة لحالته، والحجز المؤجّل يفتح تفاصيله،
+  // والمنتهي يفتح سجلّه للقراءة. خلطها كان يعرض زرّ «بدء التوجيه» فوق طلب
+  // أُغلق قبل أسبوع، أو عدّاداً يدور على موعدٍ بعد ثلاثة أيام.
+  const openRequest = (request) =>
+    navigation?.navigate?.(screenForRequest(request), { id: request.id, request });
 
   return (
     <ProviderScreen padded={false} withNav bottomInset={false}>
@@ -122,36 +162,33 @@ export default function MyRequestsScreen({ navigation }) {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[s.scroll, { paddingBottom: navClearance(insets.bottom) }]}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+        }
       >
         {/* الفراغ كان يُعرض كمساحة بيضاء صامتة: لا عنوان ولا سبب */}
-        {list.length === 0 ? (
-          <EmptyState
-            title={tab === "active" ? "لا طلبات نشطة" : "لا طلبات سابقة"}
-            message={
+        <AsyncContent
+          loading={loading}
+          error={error}
+          hasData={!!list?.length}
+          isEmpty={!!list && list.length === 0}
+          onRetry={() => load(tab)}
+          errorTitle="تعذّر تحميل الطلبات"
+          empty={{
+            title: tab === "active" ? "لا طلبات نشطة" : "لا طلبات سابقة",
+            message:
               tab === "active"
                 ? "ستظهر هنا الطلبات التي تقبلها حتى إتمامها."
-                : "ستظهر هنا الطلبات المكتملة والملغاة."
-            }
-          />
-        ) : (
-          list.map((item) => (
-            <RequestCard
-              key={item.id}
-              {...item}
-              // النشِط يفتح شاشة العمل (تفاصيل + بدء التوجيه)، والمنتهي يفتح
-              // سجلّه للقراءة. خلطهما كان يعرض زرّ «بدء التوجيه» فوق طلب
-              // أُغلق قبل أسبوع.
-              onPress={
-                item.status === "active"
-                  ? () => navigation?.navigate?.("RequestDetails")
-                  : () => navigation?.navigate?.("PastRequest", { id: item.id })
-              }
-            />
-          ))
-        )}
+                : "ستظهر هنا الطلبات المكتملة والملغاة.",
+          }}
+        >
+          {(list || []).map((item) => (
+            <RequestCard key={item.id} request={item} onPress={() => openRequest(item)} />
+          ))}
+        </AsyncContent>
       </ScrollView>
 
-      <ProviderNav active="orders" onTab={goTab} unreadCount={1} />
+      <ProviderNav active="orders" onTab={goTab} unreadCount={unreadNotifications} />
     </ProviderScreen>
   );
 }

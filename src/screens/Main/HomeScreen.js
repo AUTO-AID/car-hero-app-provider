@@ -1,9 +1,13 @@
 // ============================================================
 //  HomeScreen  —  ٢ · الرئيسية (متصل / غير متصل)
+//
+//  الشاشة تقرأ من `SessionContext` لا من نداء خاص بها: حالة الاتصال والطلب
+//  النشِط يتغيّران من أماكن أخرى (بثّ لحظي، عودة من الخلفية، قبول طلب)،
+//  وقراءتها محلياً كانت ستجعل الرئيسية تعرض لقطة قديمة بعد كل واحد منها.
 // ============================================================
 
 import React, { useEffect, useRef, useState } from "react";
-import { Animated, Easing, ScrollView, StyleSheet, View } from "react-native";
+import { Animated, Easing, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Text from "../../components/AppText";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -16,24 +20,25 @@ import {
   Moon,
   Power,
 } from "phosphor-react-native";
-import { IconButton, LinkText, SectionHeader } from "../../components/ui";
+import { ErrorBanner, IconButton, SectionHeader } from "../../components/ui";
 import {
   Card,
   GlassButton,
   GradientButton,
   GradientOrb,
   ProviderScreen,
+  ServiceRow,
   StatTile,
   navClearance,
 } from "../../components/providerUi";
 import ProviderNav from "../../components/ProviderNav";
+import { iconForService } from "../../components/serviceIcon";
 import useReducedMotion from "../../hooks/useReducedMotion";
 import { colors, font, gradients, onDark, providerMotion, providerRadius, spacing } from "../../theme/theme";
-import { PROVIDER } from "../../services/demo";
-
-// اسم الفنّي من مصدر واحد مع «حسابي» — كان مكتوباً في الشاشتين، فتغييره في
-// إحداهما يجعل التطبيق يناديه باسمين. الحرف الأول يُشتقّ منه لا يُكتب يدوياً.
-const initial = PROVIDER.name.replace(/^م\.\s*/, "").trim().charAt(0) || "ف";
+import { useSession } from "../../context/SessionContext";
+import { arabicNumber } from "../../services/datetime";
+import { screenForStatus, statusLabel } from "../../services/requestStatus";
+import { errorFeedback, successFeedback } from "../../services/feedback";
 
 // نبضة «متصل»: الحلقة وحدها تتنفّس، لا البطاقة — تحريك البطاقة كاملة يزحزح
 // النصّ تحتها فيصعب قراءته. وتتوقّف كلياً مع «تقليل الحركة».
@@ -79,7 +84,24 @@ function LiveHalo({ children }) {
 
 export default function HomeScreen({ navigation }) {
   const insets = useSafeAreaInsets();
-  const [online, setOnline] = useState(false);
+  const {
+    provider,
+    online,
+    activeRequest,
+    todayCount,
+    unreadNotifications,
+    setOnline,
+    refreshHome,
+  } = useSession();
+
+  const [toggling, setToggling] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+
+  // الحرف الأول يُشتقّ من الاسم لا يُكتب: كتابته حرفياً تفصله عن الاسم عند أول
+  // حساب حقيقي. البادئة الهندسية («م.») تُنزع أولاً وإلا صار الحرف «م» للجميع.
+  const name = provider?.name || provider?.businessName || "الفنّي";
+  const initial = name.replace(/^م\.\s*/, "").trim().charAt(0) || "ف";
 
   const goTab = (key) => {
     if (key === "orders") navigation?.navigate?.("MyRequests");
@@ -87,11 +109,47 @@ export default function HomeScreen({ navigation }) {
     if (key === "account") navigation?.navigate?.("Profile");
   };
 
+  const toggle = async (next) => {
+    setError("");
+    setToggling(true);
+    try {
+      await setOnline(next);
+      successFeedback();
+    } catch (err) {
+      // رفض إذن الموقع يصل هنا كـ`LocationError` برسالة عربية جاهزة، ورفض
+      // الخادم («لديك طلب نشِط») كذلك — كلاهما يُعرض كما هو.
+      setError(err?.message || "تعذّر تغيير حالة الاتصال، حاول مجدداً");
+      errorFeedback();
+    } finally {
+      setToggling(false);
+    }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    setError("");
+    try {
+      await refreshHome();
+    } catch (err) {
+      setError(err?.message || "تعذّر التحديث");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const openActive = () => {
+    if (!activeRequest) return;
+    navigation?.navigate?.(screenForStatus(activeRequest.status), { request: activeRequest });
+  };
+
   return (
     <ProviderScreen padded={false} withNav bottomInset={false}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[s.scroll, { paddingBottom: navClearance(insets.bottom) }]}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+        }
       >
         <View style={s.topbar}>
           <View style={s.greetRow}>
@@ -101,19 +159,25 @@ export default function HomeScreen({ navigation }) {
             <View style={s.greetText}>
               <Text style={s.greetHi}>مرحباً،</Text>
               <Text style={s.greetName} numberOfLines={1}>
-                {PROVIDER.name}
+                {name}
               </Text>
             </View>
           </View>
           <View>
             <IconButton
-              label="الإشعارات، تنبيه غير مقروء"
+              label={
+                unreadNotifications > 0
+                  ? `الإشعارات، ${arabicNumber(unreadNotifications)} غير مقروء`
+                  : "الإشعارات"
+              }
               onPress={() => navigation?.navigate?.("Notifications")}
               icon={<Bell size={21} color={colors.textHeading} />}
             />
-            <View style={s.bellDot} pointerEvents="none" />
+            {unreadNotifications > 0 ? <View style={s.bellDot} pointerEvents="none" /> : null}
           </View>
         </View>
+
+        <ErrorBanner message={error} />
 
         {online ? (
           <LinearGradient
@@ -136,9 +200,9 @@ export default function HomeScreen({ navigation }) {
             </View>
             <Text style={s.descOn}>جاهز لاستقبال طلبات الخدمة في منطقتك.</Text>
             <GlassButton
-              label="إيقاف الاتصال"
+              label={toggling ? "جارٍ الإيقاف…" : "إيقاف الاتصال"}
               icon={<Power size={20} weight="fill" color={onDark.text} />}
-              onPress={() => setOnline(false)}
+              onPress={toggling ? undefined : () => toggle(false)}
               accessibilityHint="يوقف استقبال الطلبات الجديدة"
               style={s.toggleGlass}
             />
@@ -157,17 +221,32 @@ export default function HomeScreen({ navigation }) {
               أنت غير متصل الآن ولن تصلك طلبات جديدة. فعّل الاتصال لبدء استقبال الطلبات.
             </Text>
             <GradientButton
-              label="تشغيل الاتصال"
+              label={toggling ? "جارٍ التشغيل…" : "تشغيل الاتصال"}
               tone="success"
+              disabled={toggling}
               icon={<Power size={22} weight="fill" color={colors.onPrimary} />}
-              onPress={() => setOnline(true)}
-              accessibilityHint="يجعلك مرئياً للعملاء القريبين"
+              onPress={() => toggle(true)}
+              accessibilityHint="يجعلك مرئياً للعملاء القريبين ويطلب إذن الموقع"
               style={s.toggleOn}
             />
           </Card>
         )}
 
-        {online ? (
+        {/* الطلب النشِط يسبق كل شيء: هو العمل الذي بين يدي الفنّي الآن، ويجب
+            أن يكون على بُعد لمسة من الرئيسية مهما كانت حالة الاتصال. */}
+        {activeRequest ? (
+          <View style={s.section}>
+            <SectionHeader title="طلبك النشِط" actionLabel="فتح" onAction={openActive} />
+            <Card>
+              <ServiceRow
+                Icon={iconForService(activeRequest.serviceName)}
+                title={activeRequest.serviceName || "خدمة"}
+                subtitle={`طلب ‏#${activeRequest.shortNumber} · ${statusLabel(activeRequest.status)}`}
+                size={52}
+              />
+            </Card>
+          </View>
+        ) : online ? (
           <View style={s.section}>
             <SectionHeader title="لا يوجد طلب نشِط" />
             <Card style={s.waitCard} dashed>
@@ -176,23 +255,21 @@ export default function HomeScreen({ navigation }) {
               </View>
               <Text style={s.waitTitle}>بانتظار طلب جديد</Text>
               <Text style={s.waitDesc}>سيتم إشعارك فوراً عند وصول طلب خدمة قريب منك.</Text>
-              {/* مدخل تجربة التصميم — يُحذف عند ربط البثّ اللحظي */}
-              {__DEV__ ? (
-                <LinkText onPress={() => navigation?.navigate?.("NewRequest")} style={s.devLink}>
-                  محاكاة وصول طلب ←
-                </LinkText>
-              ) : null}
             </Card>
           </View>
-        ) : (
-          <View style={s.statsRow}>
-            <StatTile Icon={CheckCircle} value="٦" label="طلبات اليوم" />
-            <StatTile Icon={ClockCountdown} value="—" label="طلب نشِط" />
-          </View>
-        )}
+        ) : null}
+
+        <View style={s.statsRow}>
+          <StatTile Icon={CheckCircle} value={arabicNumber(todayCount)} label="طلبات اليوم" />
+          <StatTile
+            Icon={ClockCountdown}
+            value={activeRequest ? "١" : "—"}
+            label="طلب نشِط"
+          />
+        </View>
       </ScrollView>
 
-      <ProviderNav active="home" onTab={goTab} unreadCount={1} />
+      <ProviderNav active="home" onTab={goTab} unreadCount={unreadNotifications} />
     </ProviderScreen>
   );
 }
@@ -302,7 +379,6 @@ const s = StyleSheet.create({
   },
   waitTitle: { fontSize: font.size.body, fontWeight: font.weight.bold, color: colors.textDark },
   waitDesc: { fontSize: font.size.sm, color: colors.textMuted, textAlign: "center", lineHeight: 20 },
-  devLink: { marginTop: spacing.xs },
 
   statsRow: { flexDirection: "row-reverse", gap: spacing.md },
 });

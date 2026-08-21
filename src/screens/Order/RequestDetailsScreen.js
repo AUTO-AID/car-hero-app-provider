@@ -2,12 +2,20 @@
 //  RequestDetailsScreen  —  ٤ · تفاصيل الطلب (بعد القبول)
 // ============================================================
 
-import React from "react";
+import React, { useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import Text from "../../components/AppText";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ChatCircle, NavigationArrow, Phone, Tire } from "phosphor-react-native";
-import { AppHeader, IconButton, StatusPill } from "../../components/ui";
+import { ChatCircle, NavigationArrow, Phone, XCircle } from "phosphor-react-native";
+import {
+  AppHeader,
+  ConfirmSheet,
+  ErrorBanner,
+  IconButton,
+  OutlineButton,
+  SkeletonCard,
+  StatusPill,
+} from "../../components/ui";
 import {
   Card,
   DetailRow,
@@ -16,15 +24,72 @@ import {
   ProviderScreen,
   ServiceRow,
 } from "../../components/providerUi";
+import { iconForService } from "../../components/serviceIcon";
 import { colors, font, providerRadius, spacing } from "../../theme/theme";
 import { formatMoney } from "../../services/money";
-import { callNumber, messageNumber } from "../../services/contact";
-import { DEMO_CUSTOMER } from "../../services/demo";
+import { arabicNumber, formatDateTimeLabel, formatRelative } from "../../services/datetime";
+import { declineBooking } from "../../services/providerApi";
+import { callNumber, canContact, messageNumber } from "../../services/contact";
+import { openNavigation } from "../../services/navigationLink";
+import { statusMeta } from "../../services/requestStatus";
+import { errorFeedback, successFeedback } from "../../services/feedback";
+import { useSession } from "../../context/SessionContext";
+import useRequestDetail from "../../hooks/useRequestDetail";
 
-const initial = DEMO_CUSTOMER.name.trim().charAt(0) || "ع";
-
-export default function RequestDetailsScreen({ navigation }) {
+export default function RequestDetailsScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
+  const { startEnRoute } = useSession();
+  const { request, loading, error, reload } = useRequestDetail({ route, navigation });
+
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState("");
+  const [confirmDecline, setConfirmDecline] = useState(false);
+
+  // حجز مجدول لم يحن موعده: لا توجيه ولا وصول بعد — الفعل الوحيد المتاح هو
+  // الاعتذار، وعرض «بدء التوجيه» فوق موعدٍ بعد ثلاثة أيام يدعو إلى خطأ.
+  const isBooking = !!request?.isUpcomingBooking;
+
+  const onDecline = async () => {
+    setConfirmDecline(false);
+    if (busy || !request) return;
+    setBusy(true);
+    setActionError("");
+    try {
+      await declineBooking(request.id);
+      successFeedback();
+      navigation?.navigate?.("MyRequests");
+    } catch (err) {
+      errorFeedback();
+      setActionError(err?.message || "تعذّر الاعتذار عن الحجز، حاول مجدداً");
+      setBusy(false);
+    }
+  };
+
+  const customerName = request?.customer?.name || "عميل Car Hero";
+  // الحرف يُشتقّ من الاسم لا يُكتب: كتابته حرفياً تفصله عن الاسم عند أول
+  // عميل حقيقي.
+  const initial = customerName.trim().charAt(0) || "ع";
+  const state = statusMeta(request?.status);
+  const phone = request?.customer?.phone;
+  const { latitude, longitude } = request?.location || {};
+
+  const onStart = async () => {
+    if (busy) return;
+    setBusy(true);
+    setActionError("");
+    try {
+      const updated = await startEnRoute(request.id);
+      successFeedback();
+      // التوجيه يُفتح بعد أن يثبت الانتقال على الخادم لا قبله: فتح الخرائط ثم
+      // فشل النداء كان يترك الفنّي يقود نحو طلب لم يُسجَّل أنه في طريقه إليه.
+      openNavigation(latitude, longitude, customerName);
+      navigation?.navigate?.("EnRoute", { request: updated });
+    } catch (err) {
+      errorFeedback();
+      setActionError(err?.message || "تعذّر بدء التوجيه، حاول مجدداً");
+      setBusy(false);
+    }
+  };
 
   return (
     <ProviderScreen padded={false} bottomInset={false}>
@@ -33,70 +98,161 @@ export default function RequestDetailsScreen({ navigation }) {
       <AppHeader
         title="تفاصيل الطلب"
         onBack={() => navigation?.goBack?.()}
-        action={<StatusPill label="مقبول" tone="info" />}
+        action={request ? <StatusPill label={state.label} tone={state.tone} /> : null}
         style={s.header}
       />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
-        <Card raised>
-          <ServiceRow Icon={Tire} title="تغيير إطار" subtitle="طلب ‏#1042 · قبل ٣ دقائق" size={56} />
-        </Card>
+        {!request ? (
+          loading ? (
+            <>
+              <SkeletonCard lines={2} showMedia />
+              <SkeletonCard lines={3} />
+            </>
+          ) : (
+            <ErrorBanner message={error || "تعذّر تحميل الطلب."} />
+          )
+        ) : (
+          <>
+            <ErrorBanner message={actionError || error} />
 
-        <Card>
-          <Text style={s.cardHint}>بيانات العميل</Text>
-          <View style={s.custRow}>
-            <View style={s.avatar}>
-              {/* الحرف يُشتقّ من الاسم لا يُكتب: كتابته حرفياً تفصله عن الاسم
-                  عند أول عميل حقيقي. */}
-              <Text style={s.avatarText}>{initial}</Text>
-            </View>
-            <View style={s.custText}>
-              <Text style={s.custName} numberOfLines={1}>
-                {DEMO_CUSTOMER.name}
-              </Text>
-              <Text style={s.custSub}>عميل Car Hero</Text>
-            </View>
-            {/* كانت دائرتين بلا اسم ولا دور — أي زرّين صامتين لقارئ الشاشة —
-                ثم صارتا بلا فعل: `onPress` فارغة تنكمش وتهتزّ ولا تتّصل. */}
-            <IconButton
-              label={`اتصال بالعميل ${DEMO_CUSTOMER.name}`}
-              onPress={() => callNumber(DEMO_CUSTOMER.phone)}
-              icon={<Phone size={20} weight="fill" color={colors.success} />}
-              style={[s.actBtn, { backgroundColor: colors.successBg }]}
-            />
-            <IconButton
-              label={`مراسلة العميل ${DEMO_CUSTOMER.name}`}
-              onPress={() => messageNumber(DEMO_CUSTOMER.phone)}
-              icon={<ChatCircle size={20} weight="fill" color={colors.primary} />}
-              style={[s.actBtn, { backgroundColor: colors.tint }]}
-            />
-          </View>
-        </Card>
+            <Card raised>
+              <ServiceRow
+                Icon={iconForService(request.serviceName)}
+                title={request.serviceName || "خدمة"}
+                subtitle={`طلب ‏#${request.shortNumber}${
+                  request.timestamps?.acceptedAt
+                    ? ` · ${formatRelative(request.timestamps.acceptedAt)}`
+                    : ""
+                }`}
+                size={56}
+              />
+            </Card>
 
-        <MapCanvas height={180} accessibilityLabel="خريطة تقريبية: موقع العميل على بُعد 2.4 كم منك">
-          <View style={s.custPinDot} />
-          <View style={s.mapBadge}>
-            <NavigationArrow size={16} weight="fill" color={colors.primary} />
-            <Text style={s.mapBadgeText}>2.4 كم</Text>
-          </View>
-        </MapCanvas>
+            <Card>
+              <Text style={s.cardHint}>بيانات العميل</Text>
+              <View style={s.custRow}>
+                <View style={s.avatar}>
+                  <Text style={s.avatarText}>{initial}</Text>
+                </View>
+                <View style={s.custText}>
+                  <Text style={s.custName} numberOfLines={1}>
+                    {customerName}
+                  </Text>
+                  <Text style={s.custSub}>عميل Car Hero</Text>
+                </View>
+                {/* الزرّان يظهران فقط حين يوجد رقم: زرّ اتصال بلا رقم ينكمش
+                    ويهتزّ ولا يتّصل — أسوأ من غيابه لأن الفنّي ينتظر. */}
+                {canContact(phone) ? (
+                  <>
+                    <IconButton
+                      label={`اتصال بالعميل ${customerName}`}
+                      onPress={() => callNumber(phone)}
+                      icon={<Phone size={20} weight="fill" color={colors.success} />}
+                      style={[s.actBtn, { backgroundColor: colors.successBg }]}
+                    />
+                    <IconButton
+                      label={`مراسلة العميل ${customerName}`}
+                      onPress={() => messageNumber(phone)}
+                      icon={<ChatCircle size={20} weight="fill" color={colors.primary} />}
+                      style={[s.actBtn, { backgroundColor: colors.tint }]}
+                    />
+                  </>
+                ) : null}
+              </View>
+            </Card>
 
-        <Card style={s.detailCard}>
-          <DetailRow label="الموقع" value="شارع المدينة المنورة" />
-          <DetailRow label="المسافة" value="2.4 كم · ~7 دقائق" />
-          <DetailRow label="السعر التقديري" value={formatMoney(45)} strong last />
-        </Card>
+            <MapCanvas
+              height={180}
+              accessibilityLabel={
+                request.distanceKm != null
+                  ? `خريطة تقريبية: موقع العميل على بُعد ${request.distanceKm} كم منك`
+                  : "خريطة تقريبية لموقع العميل"
+              }
+            >
+              <View style={s.custPinDot} />
+              {request.distanceKm != null ? (
+                <View style={s.mapBadge}>
+                  <NavigationArrow size={16} weight="fill" color={colors.primary} />
+                  <Text style={s.mapBadgeText}>{arabicNumber(request.distanceKm)} كم</Text>
+                </View>
+              ) : null}
+            </MapCanvas>
+
+            <Card style={s.detailCard}>
+              {/* الموعد أول ما يُقرأ في الحجز: هو ما يبني عليه الفنّي يومه */}
+              {isBooking ? (
+                <DetailRow label="موعد الحجز" value={formatDateTimeLabel(request.scheduledAt)} strong />
+              ) : null}
+              <DetailRow label="الموقع" value={request.location?.address || "غير محدّد"} />
+              <DetailRow
+                label="المسافة"
+                value={
+                  request.distanceKm != null
+                    ? `${arabicNumber(request.distanceKm)} كم · ~${arabicNumber(request.etaMinutes)} دقيقة`
+                    : "—"
+                }
+              />
+              {request.vehicle ? (
+                <DetailRow
+                  label="المركبة"
+                  value={[request.vehicle.brand, request.vehicle.model, request.vehicle.plateNumber]
+                    .filter(Boolean)
+                    .join(" · ")}
+                />
+              ) : null}
+              {/* ملاحظة العميل تصف العطل غالباً — هي أهم سطر للفنّي قبل أن
+                  يتحرّك، ولهذا لا تُخفى خلف طيّ. */}
+              {request.notes ? <DetailRow label="ملاحظات العميل" value={request.notes} /> : null}
+              <DetailRow
+                label="السعر التقديري"
+                value={formatMoney(request.payment?.amount)}
+                strong
+                last
+              />
+            </Card>
+          </>
+        )}
       </ScrollView>
 
-      <View style={[s.footer, { paddingBottom: Math.max(insets.bottom, spacing.lg) + spacing.sm }]}>
-        <GradientButton
-          label="بدء التوجيه"
-          height={58}
-          icon={<NavigationArrow size={20} weight="fill" color={colors.onPrimary} />}
-          onPress={() => navigation?.navigate?.("EnRoute")}
-          accessibilityHint="يفتح شاشة التوجيه ويبدأ إرسال موقعك للعميل"
-        />
-      </View>
+      {request ? (
+        <View style={[s.footer, { paddingBottom: Math.max(insets.bottom, spacing.lg) + spacing.sm }]}>
+          {isBooking ? (
+            <>
+              <Text style={s.bookingNote}>
+                سيصلك طلب تأكيد قبل الموعد. إن لم تعد تستطيع تنفيذه، اعتذر مبكراً ليجد العميل بديلاً.
+              </Text>
+              <OutlineButton
+                label="الاعتذار عن الحجز"
+                danger
+                icon={<XCircle size={20} weight="bold" color={colors.danger} />}
+                onPress={() => setConfirmDecline(true)}
+              />
+            </>
+          ) : (
+            <GradientButton
+              label={busy ? "جارٍ البدء…" : "بدء التوجيه"}
+              height={58}
+              disabled={busy}
+              icon={<NavigationArrow size={20} weight="fill" color={colors.onPrimary} />}
+              onPress={onStart}
+              accessibilityHint="يفتح تطبيق الخرائط ويبدأ إرسال موقعك للعميل"
+            />
+          )}
+        </View>
+      ) : null}
+
+      <ConfirmSheet
+        visible={confirmDecline}
+        title="الاعتذار عن الحجز"
+        message="سيُسند هذا الحجز إلى فنّي آخر. لا يمكن التراجع بعد التأكيد."
+        confirmLabel="اعتذار"
+        cancelLabel="تراجع"
+        danger
+        busy={busy}
+        onCancel={() => setConfirmDecline(false)}
+        onConfirm={onDecline}
+      />
     </ProviderScreen>
   );
 }
@@ -160,5 +316,12 @@ const s = StyleSheet.create({
     backgroundColor: colors.screenBg,
     borderTopWidth: 1,
     borderTopColor: colors.borderSoft,
+    gap: spacing.md,
+  },
+  bookingNote: {
+    fontSize: font.size.sm,
+    color: colors.textMuted,
+    textAlign: "center",
+    lineHeight: 20,
   },
 });

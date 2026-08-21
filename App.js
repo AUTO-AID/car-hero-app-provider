@@ -5,16 +5,23 @@
 // (navigate / replace / goBack / reset) دون أن يعتمد التطبيق على المكتبة.
 // السبب هو نفسه في التطبيقين: الشاشات قليلة ومتسلسلة، والتحكّم المركزي في
 // الانتقالات يجعل كل مسار مرئياً في ملف واحد.
-import React, { useMemo, useRef, useState } from "react";
-import { View } from "react-native";
+//
+// ما تغيّر عند الربط: الشاشات لم تعد تقرّر الانتقال وحدها في دورة الطلب. الخادم
+// هو مصدر حالة الطلب، و`SessionProvider` هو من يدفع التغييرات (طلب وارد، إلغاء
+// من العميل، انتهاء مهلة) إلى هنا فيُترجمها إلى شاشة.
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useFonts } from "expo-font";
 
 import { colors } from "./src/theme/theme";
-import { qaState } from "./src/services/qa";
 import { StatusBarScrim } from "./src/components/ui";
 import { callNumber } from "./src/services/contact";
-import { SUPPORT_PHONE } from "./src/services/demo";
+import { SUPPORT_PHONE } from "./src/services/support";
+import { forgotPassword, resetPassword } from "./src/services/authApi";
+import { screenForStatus } from "./src/services/requestStatus";
+import { SessionProvider, useSession } from "./src/context/SessionContext";
+import { notify } from "./src/services/feedback";
 
 import LoginScreen from "./src/screens/Auth/LoginScreen";
 import HomeScreen from "./src/screens/Main/HomeScreen";
@@ -62,6 +69,9 @@ const ROUTE_TO_STEP = {
   Profile: "profile",
 };
 
+// شاشات دورة الطلب — الخروج منها يقع تلقائياً حين ينتهي الطلب من طرف آخر
+const ORDER_STEPS = ["newRequest", "requestDetails", "enRoute", "arrived", "inService"];
+
 export default function App() {
   const [fontsLoaded, fontError] = useFonts({
     Cairo_400Regular: require("@expo-google-fonts/cairo/400Regular/Cairo_400Regular.ttf"),
@@ -78,10 +88,7 @@ export default function App() {
 }
 
 function Root({ fontsReady = true }) {
-  // قفزة تطويرية إلى أي شاشة عبر ?qa=<step> — تُلغى تلقائياً خارج __DEV__.
-  // شاشات دورة الطلب تقع خلف تسلسل كامل (دخول ← اتصال ← طلب وارد ← قبول)،
-  // فمعاينة أي منها كانت تتطلّب المرور بالتسلسل كلّه في كل مرّة.
-  const [step, setStep] = useState(() => qaState() || "login");
+  const [step, setStep] = useState("login");
   const [navStack, setNavStack] = useState([]);
   const [routeParams, setRouteParams] = useState({});
 
@@ -90,19 +97,24 @@ function Root({ fontsReady = true }) {
   const routeParamsRef = useRef({});
   routeParamsRef.current = routeParams;
 
-  const goTo = (nextStep, params) => {
+  // مرجع للخطوة الحالية: معالجات البثّ اللحظي تُنشأ مرّة واحدة، وقراءة `step`
+  // منها مباشرةً كانت تُجمّدها على قيمة أول إطار.
+  const stepRef = useRef(step);
+  stepRef.current = step;
+
+  const goTo = useCallback((nextStep, params) => {
     if (TAB_STEPS.includes(nextStep)) {
       setNavStack([]);
       setRouteParams(params || {});
       setStep(nextStep);
       return;
     }
-    setNavStack((prev) => [...prev, { step, params: routeParamsRef.current }]);
+    setNavStack((prev) => [...prev, { step: stepRef.current, params: routeParamsRef.current }]);
     setRouteParams(params || {});
     setStep(nextStep);
-  };
+  }, []);
 
-  const goBack = () => {
+  const goBack = useCallback(() => {
     setNavStack((prev) => {
       if (!prev.length) return prev;
       const entry = prev[prev.length - 1];
@@ -110,33 +122,120 @@ function Root({ fontsReady = true }) {
       setStep(entry.step);
       return prev.slice(0, -1);
     });
-  };
+  }, []);
 
-  const resetTo = (name, params) => {
+  const resetTo = useCallback((name, params) => {
     setNavStack([]);
     setRouteParams(params || {});
     setStep(ROUTE_TO_STEP[name] || name);
-  };
+  }, []);
 
-  const nav = {
-    navigate: (name, params) => goTo(ROUTE_TO_STEP[name] || name, params),
-    // استبدال دون دفع للمكدّس: يُستعمل حيث لا معنى للرجوع (بعد الدخول، وبعد
-    // قبول الطلب، وبعد إنهاء الخدمة) — الرجوع إلى شاشة انتهى دورها يربك.
-    replace: (name, params) => {
-      setRouteParams(params || {});
-      setStep(ROUTE_TO_STEP[name] || name);
-    },
-    goBack,
-    popToTop: () => resetTo("Home"),
-    // توقيع react-navigation نفسه، لتبقى شاشة الإتمام مكتوبة كما هي
-    reset: (state) => {
-      const routes = state?.routes || [];
-      const target = routes[state?.index ?? routes.length - 1];
-      resetTo(target?.name || "Home", target?.params);
-    },
-  };
+  const nav = useMemo(
+    () => ({
+      navigate: (name, params) => goTo(ROUTE_TO_STEP[name] || name, params),
+      // استبدال دون دفع للمكدّس: يُستعمل حيث لا معنى للرجوع (بعد الدخول، وبعد
+      // قبول الطلب، وبعد إنهاء الخدمة) — الرجوع إلى شاشة انتهى دورها يربك.
+      replace: (name, params) => {
+        setRouteParams(params || {});
+        setStep(ROUTE_TO_STEP[name] || name);
+      },
+      goBack,
+      popToTop: () => resetTo("Home"),
+      // توقيع react-navigation نفسه، لتبقى شاشة الإتمام مكتوبة كما هي
+      reset: (state) => {
+        const routes = state?.routes || [];
+        const target = routes[state?.index ?? routes.length - 1];
+        resetTo(target?.name || "Home", target?.params);
+      },
+    }),
+    [goTo, goBack, resetTo],
+  );
 
   const route = useMemo(() => ({ params: routeParams }), [routeParams]);
+
+  // ============================================================
+  //  جسور البثّ اللحظي → التنقّل
+  // ============================================================
+
+  /** طلب وارد: يقفز فوق كل شيء — مهلته عشرون ثانية ولا تحتمل تصفّحاً */
+  const handleIncomingRequest = useCallback(
+    (request) => {
+      if (stepRef.current === "newRequest") {
+        setRouteParams({ request });
+        return;
+      }
+      goTo("newRequest", { request });
+    },
+    [goTo],
+  );
+
+  /** أُغلق العرض من الخادم (مهلة/إلغاء/سبقك غيرك) ونحن على شاشته */
+  const handleRequestClosed = useCallback(
+    ({ reason }) => {
+      if (stepRef.current !== "newRequest") return;
+      const message =
+        reason === "cancelled"
+          ? "ألغى العميل هذا الطلب."
+          : reason === "taken"
+            ? "لم يعد هذا الطلب متاحاً."
+            : reason === "rejected"
+              ? "تم الاعتذار عن هذا الطلب."
+              : "انتهت مهلة الرد على الطلب.";
+      notify(message);
+      resetTo("Home");
+    },
+    [resetTo],
+  );
+
+  /**
+   * تغيّرت حالة الطلب النشِط. المصدر مهمّ: التغيير المحلي (ضغط الفنّي زرّاً)
+   * تقوده الشاشة نفسها، أمّا القادم من الخادم (`remote`) فيفرض قفزة — العميل
+   * ألغى الطلب والفنّي ما يزال على شاشة «في الطريق».
+   */
+  const handleActiveRequestChanged = useCallback(
+    (request, meta) => {
+      if (!meta?.remote) return;
+      if (!ORDER_STEPS.includes(stepRef.current)) return;
+
+      if (!request) {
+        notify("انتهى هذا الطلب.");
+        resetTo("Home");
+        return;
+      }
+
+      const target = screenForStatus(request.status);
+      if (target === "Home") {
+        notify("تم إلغاء الطلب.");
+        resetTo("Home");
+        return;
+      }
+      if (ROUTE_TO_STEP[target] !== stepRef.current) {
+        setRouteParams({ request });
+        setStep(ROUTE_TO_STEP[target]);
+      }
+    },
+    [resetTo],
+  );
+
+  if (!fontsReady) return <View style={{ flex: 1, backgroundColor: colors.screenBg }} />;
+
+  return (
+    <SessionProvider
+      onIncomingRequest={handleIncomingRequest}
+      onRequestClosed={handleRequestClosed}
+      onActiveRequestChanged={handleActiveRequestChanged}
+    >
+      <Screens nav={nav} route={route} step={step} setStep={setStep} setNavStack={setNavStack} setRouteParams={setRouteParams} />
+    </SessionProvider>
+  );
+}
+
+/**
+ * فُصل عن `Root` لأنه يحتاج `useSession`، والسياق لا يُقرأ داخل المكوّن الذي
+ * يركّب مزوّده.
+ */
+function Screens({ nav, route, step, setStep, setNavStack, setRouteParams }) {
+  const { booting, isAuthenticated, activeRequest } = useSession();
 
   // ============================================================
   //  استعادة كلمة المرور — حالة التدفّق
@@ -145,15 +244,14 @@ function Root({ fontsReady = true }) {
   //  ثلاث شاشات (طلب ← رمز ← كلمة جديدة)، وحفظه داخل إحداها يعني تمريره
   //  يدوياً بين الباقي أو إعادة سؤال المستخدم عنه — وإعادة السؤال في أسوأ
   //  لحظة (فشل الدخول) هي أول احتكاك يجب إلغاؤه.
-  //
-  //  **لا خادم بعد.** كل معالج أدناه ينتقل محلّياً، وموضع النداء الحقيقي
-  //  معلّم بـ TODO. عند الربط تُنسخ `authApi.js` من تطبيق العميل وتُستبدل
-  //  أجسام المعالجات وحدها — الشاشات لا تُلمس لأنها تتلقّى loading/error
-  //  كخصائص أصلاً.
   // ============================================================
   const [authPhone, setAuthPhone] = useState("");
+  const [authCode, setAuthCode] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState("");
+  // الخادم قد يعلّق OTP في التطوير (`dev-flags`) ويردّ `otpBypassed` — عندها
+  // نتخطّى شاشة الرمز بدل عرض حقل لرمز لن يصل أبداً.
+  const [otpBypassed, setOtpBypassed] = useState(false);
 
   // الخطأ يُصفَّر مع كل انتقال: رسالة خطأ من شاشة سابقة تظهر فوق شاشة جديدة
   // تُقرأ كخطأ في هذه الشاشة.
@@ -163,22 +261,52 @@ function Root({ fontsReady = true }) {
     setStep(nextStep);
   };
 
-  const handleForgotPassword = ({ phone }) => {
-    // TODO عند الربط: await authApi.forgotPassword({ phone })
-    setAuthPhone(phone);
-    goAuth("otp");
+  const handleForgotPassword = async ({ phone }) => {
+    setAuthLoading(true);
+    setAuthError("");
+    try {
+      const res = await forgotPassword({ phone });
+      setAuthPhone(phone);
+      setOtpBypassed(!!res?.otpBypassed);
+      goAuth(res?.otpBypassed ? "resetPassword" : "otp");
+    } catch (err) {
+      setAuthError(err?.message || "تعذّر إرسال الرمز، حاول مجدداً");
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
-  // لا نقطة تحقّق مستقلّة للرمز في عقد العميل أيضاً: يُحمل حتى شاشة إعادة
-  // التعيين ويُرسل معها.
-  const handleOtpConfirm = () => goAuth("resetPassword");
+  // لا نقطة تحقّق مستقلّة للرمز في عقد الخادم: يُحمل حتى شاشة إعادة التعيين
+  // ويُرسل معها في نداء واحد (`/auth/reset-password`).
+  const handleOtpConfirm = (code) => {
+    setAuthCode(typeof code === "string" ? code : code?.code || "");
+    goAuth("resetPassword");
+  };
 
-  // TODO عند الربط: await authApi.forgotPassword({ phone: authPhone })
-  const handleOtpResend = () => setAuthError("");
+  const handleOtpResend = async () => {
+    setAuthError("");
+    try {
+      await forgotPassword({ phone: authPhone });
+    } catch (err) {
+      setAuthError(err?.message || "تعذّر إعادة الإرسال، حاول مجدداً");
+    }
+  };
 
-  const handleResetPassword = () => {
-    // TODO عند الربط: await authApi.resetPassword({ phone, code, newPassword })
-    goAuth("passwordChanged");
+  const handleResetPassword = async ({ password }) => {
+    setAuthLoading(true);
+    setAuthError("");
+    try {
+      await resetPassword({
+        phone: authPhone,
+        code: otpBypassed ? undefined : authCode,
+        newPassword: password,
+      });
+      goAuth("passwordChanged");
+    } catch (err) {
+      setAuthError(err?.message || "تعذّر تغيير كلمة المرور، حاول مجدداً");
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   // نهاية التدفّق: تصفير المكدّس فلا يعيد زرّ الرجوع المستخدم إلى شاشات
@@ -186,12 +314,51 @@ function Root({ fontsReady = true }) {
   const leaveRecovery = () => {
     setNavStack([]);
     setAuthPhone("");
+    setAuthCode("");
+    setOtpBypassed(false);
     goAuth("login");
   };
 
-  // الخطوط جزء من الهوية لا زينة: عرض الشاشات بخطّ النظام ثم قلبها إلى Cairo
-  // يُحدث قفزة تخطيط كاملة. نمسك الشاشة الأولى على خلفية العلامة حتى تجهز.
-  if (!fontsReady) return <View style={{ flex: 1, backgroundColor: colors.screenBg }} />;
+  // ============================================================
+  //  حرّاس الجلسة
+  // ============================================================
+
+  const authSteps = ["login", "forgotPassword", "otp", "resetPassword", "passwordChanged"];
+
+  useEffect(() => {
+    if (booting) return;
+    // خروج (أو طرد جلسة) ونحن داخل التطبيق → شاشة الدخول
+    if (!isAuthenticated && !authSteps.includes(step)) {
+      setNavStack([]);
+      setRouteParams({});
+      setStep("login");
+      return;
+    }
+    // دخول ناجح ونحن على شاشة مصادقة → الرئيسية.
+    // الطلب النشِط يقفز إلى شاشته مباشرةً: الفنّي الذي أُغلق تطبيقه وهو في
+    // الطريق يجب أن يعود إلى حيث كان لا إلى رئيسية تقول «لا طلب نشِط».
+    if (isAuthenticated && authSteps.includes(step)) {
+      setNavStack([]);
+      if (activeRequest) {
+        setRouteParams({ request: activeRequest });
+        setStep(ROUTE_TO_STEP[screenForStatus(activeRequest.status)] || "home");
+      } else {
+        setRouteParams({});
+        setStep("home");
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [booting, isAuthenticated, step]);
+
+  // شاشة إقلاع: نمسك العرض حتى نعرف إن كان هناك حساب — عرض شاشة الدخول
+  // ومضةً لفنّي مسجَّل دخوله فعلاً يبدو كخروج غير مقصود.
+  if (booting) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.screenBg, alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.screenBg }}>
@@ -199,9 +366,8 @@ function Root({ fontsReady = true }) {
       {step === "login" && <LoginScreen navigation={nav} route={route} />}
 
       {/* استعادة كلمة المرور — أربع شاشات بعقد خصائص تطبيق العميل نفسه.
-          الدخول باسم مستخدم والاستعادة برقم الهاتف: الرقم هو ما يملك الفنّي
-          وسيلة استقباله (واتساب)، واسم المستخدم تختاره الإدارة وقد لا يذكره
-          أصلاً — وهو سبب وقوفه هنا. */}
+          الدخول والاستعادة كلاهما برقم الهاتف: الخادم لا يعرف أسماء مستخدمين
+          إطلاقاً، ومعرّفان مختلفان بين الشاشتين كانا سيربكان عند أول نسيان. */}
       {step === "forgotPassword" && (
         <ForgotPasswordScreen
           initialPhone={authPhone}
@@ -237,7 +403,7 @@ function Root({ fontsReady = true }) {
           loading={authLoading}
           error={authError}
           onSubmit={handleResetPassword}
-          onBack={() => goAuth("otp")}
+          onBack={() => goAuth(otpBypassed ? "forgotPassword" : "otp")}
           onRequestNewCode={() => goAuth("forgotPassword")}
           onLogin={leaveRecovery}
         />

@@ -2,11 +2,11 @@
 //  ArrivedScreen  —  ٦ · وصلت الموقع
 // ============================================================
 
-import React from "react";
+import React, { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import Text from "../../components/AppText";
-import { MapPinArea, Phone, Tire, Wrench } from "phosphor-react-native";
-import { IconButton, StatusPill } from "../../components/ui";
+import { MapPinArea, Phone, Wrench } from "phosphor-react-native";
+import { ErrorBanner, IconButton, StatusPill } from "../../components/ui";
 import {
   Card,
   GradientButton,
@@ -14,14 +14,41 @@ import {
   ProviderScreen,
   ServiceRow,
 } from "../../components/providerUi";
+import { iconForService } from "../../components/serviceIcon";
 import { colors, font, providerRadius, spacing } from "../../theme/theme";
-import { callNumber } from "../../services/contact";
-import { DEMO_CUSTOMER } from "../../services/demo";
+import { callNumber, canContact } from "../../services/contact";
+import { errorFeedback, successFeedback } from "../../services/feedback";
+import { useSession } from "../../context/SessionContext";
+import useRequestDetail from "../../hooks/useRequestDetail";
 
-export default function ArrivedScreen({ navigation }) {
+export default function ArrivedScreen({ navigation, route }) {
+  const { startService } = useSession();
+  const { request, error } = useRequestDetail({ route, navigation });
+
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState("");
+
+  const customerName = request?.customer?.name || "العميل";
+  const phone = request?.customer?.phone;
+
+  const onStart = async () => {
+    if (busy || !request) return;
+    setBusy(true);
+    setActionError("");
+    try {
+      const updated = await startService(request.id);
+      successFeedback();
+      navigation?.navigate?.("InService", { request: updated });
+    } catch (err) {
+      errorFeedback();
+      setActionError(err?.message || "تعذّر بدء الخدمة، حاول مجدداً");
+      setBusy(false);
+    }
+  };
+
   return (
     <ProviderScreen style={s.root}>
-      <StatusPill label="طلب ‏#1042 · وصلت الموقع" tone="info" />
+      <StatusPill label={`طلب ‏#${request?.shortNumber ?? "----"} · وصلت الموقع`} tone="info" />
 
       <View style={s.hero}>
         <HaloIcon Icon={MapPinArea} tone="success" />
@@ -32,18 +59,22 @@ export default function ArrivedScreen({ navigation }) {
       </Text>
       <Text style={s.desc}>أنت الآن عند موقع العميل. تواصل معه إن لزم، ثم ابدأ تنفيذ الخدمة.</Text>
 
+      <ErrorBanner message={actionError || error} style={s.error} />
+
       <Card style={s.card}>
         <ServiceRow
-          Icon={Tire}
-          title="تغيير إطار"
-          subtitle={DEMO_CUSTOMER.name}
+          Icon={iconForService(request?.serviceName)}
+          title={request?.serviceName || "خدمة"}
+          subtitle={customerName}
           trailing={
-            <IconButton
-              label={`اتصال بالعميل ${DEMO_CUSTOMER.name}`}
-              onPress={() => callNumber(DEMO_CUSTOMER.phone)}
-              icon={<Phone size={20} weight="fill" color={colors.success} />}
-              style={s.callBtn}
-            />
+            canContact(phone) ? (
+              <IconButton
+                label={`اتصال بالعميل ${customerName}`}
+                onPress={() => callNumber(phone)}
+                icon={<Phone size={20} weight="fill" color={colors.success} />}
+                style={s.callBtn}
+              />
+            ) : null
           }
         />
       </Card>
@@ -51,11 +82,12 @@ export default function ArrivedScreen({ navigation }) {
       <View style={s.spacer} />
 
       <GradientButton
-        label="بدء الخدمة"
+        label={busy ? "جارٍ البدء…" : "بدء الخدمة"}
         tone="success"
         height={62}
+        disabled={busy || !request}
         icon={<Wrench size={22} weight="fill" color={colors.onPrimary} />}
-        onPress={() => navigation?.navigate?.("InService")}
+        onPress={onStart}
         accessibilityHint="يبدأ تنفيذ الخدمة ويشغّل عدّاد المدة"
       />
     </ProviderScreen>
@@ -79,6 +111,7 @@ const s = StyleSheet.create({
     textAlign: "center",
     lineHeight: font.lineHeight.body,
   },
+  error: { alignSelf: "stretch", marginTop: spacing.lg },
   card: { alignSelf: "stretch", marginTop: spacing.xxl + spacing.xs },
   callBtn: {
     width: 46,

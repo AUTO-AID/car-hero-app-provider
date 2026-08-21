@@ -1,5 +1,9 @@
 // ============================================================
 //  ProfileScreen  —  ١١ · حسابي (الملف الشخصي للفنّي)
+//
+//  للقراءة فقط عن قصد: تعديل الملف والخدمات وساعات العمل والحساب البنكي كلّها
+//  في لوحة التحكّم على الويب (`PUT /providers/me/*`). تكرارها هنا كان سيعني
+//  نموذجين لنفس البيانات يتسابقان — والتطبيق الميداني ليس مكان تعبئة نماذج.
 // ============================================================
 
 import React, { useState } from "react";
@@ -7,8 +11,8 @@ import { ScrollView, StyleSheet, View } from "react-native";
 import Text from "../../components/AppText";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import { Buildings, Info, Phone, ShieldCheck, SignOut, User } from "phosphor-react-native";
-import { ConfirmSheet, OutlineButton, StatusPill } from "../../components/ui";
+import { Buildings, Info, Phone, ShieldCheck, SignOut, Star, User } from "phosphor-react-native";
+import { ConfirmSheet, ErrorBanner, OutlineButton, StatusPill } from "../../components/ui";
 import {
   Card,
   DetailRow,
@@ -19,18 +23,52 @@ import {
 } from "../../components/providerUi";
 import ProviderNav from "../../components/ProviderNav";
 import { colors, font, gradients, onDark, providerRadius, shadow, spacing } from "../../theme/theme";
-import { PROVIDER } from "../../services/demo";
+import { arabicNumber } from "../../services/datetime";
+import { useSession } from "../../context/SessionContext";
 
-const initial = PROVIDER.shortName.trim().charAt(0) || "ف";
+/**
+ * حالة الحساب من زاوية «هل أستطيع العمل الآن؟» لا من زاوية حقول القاعدة.
+ * الفنّي غير المعتمد كان يرى «مفعّل» أخضر ثم لا يصله طلب واحد أبداً — والشارة
+ * التي تكذب أسوأ من غيابها.
+ */
+function accountState({ isApproved, isActive, accountStatus }) {
+  if (!isApproved) return { label: "قيد المراجعة", tone: "warning", short: "قيد المراجعة" };
+  if (accountStatus === "suspended" || !isActive) {
+    return { label: "موقوف", tone: "danger", short: "موقوف" };
+  }
+  return { label: "مفعّل", tone: "success", short: "حساب مفعّل" };
+}
 
 export default function ProfileScreen({ navigation }) {
   const insets = useSafeAreaInsets();
+  const { provider, unreadNotifications, signOut } = useSession();
+
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const name = provider?.name || provider?.businessName || "الفنّي";
+  const initial = name.replace(/^م\.\s*/, "").trim().charAt(0) || "ف";
+  const state = accountState(provider || {});
 
   const goTab = (key) => {
     if (key === "home") navigation?.navigate?.("Home");
     if (key === "orders") navigation?.navigate?.("MyRequests");
     if (key === "alerts") navigation?.navigate?.("Notifications");
+  };
+
+  const onLogout = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await signOut();
+      setConfirmLogout(false);
+      // لا انتقال هنا: الجذر يراقب حالة الجلسة وينقل إلى شاشة الدخول.
+    } catch (err) {
+      setError(err?.message || "تعذّر تسجيل الخروج، حاول مجدداً");
+      setConfirmLogout(false);
+      setBusy(false);
+    }
   };
 
   return (
@@ -53,27 +91,68 @@ export default function ProfileScreen({ navigation }) {
           </View>
           <View style={s.headerText}>
             <Text style={s.name} numberOfLines={1}>
-              {PROVIDER.name}
+              {name}
             </Text>
             <Text style={s.workshop} numberOfLines={1}>
-              {PROVIDER.workshop}
+              {provider?.businessName || "—"}
             </Text>
             <View style={s.activeChip}>
-              <View style={s.activeDot} />
-              <Text style={s.activeText}>حساب مفعّل</Text>
+              <View
+                style={[
+                  s.activeDot,
+                  state.tone !== "success" && { backgroundColor: onDark.textSoft },
+                ]}
+              />
+              <Text style={s.activeText}>{state.short}</Text>
             </View>
           </View>
         </LinearGradient>
 
         <View style={s.body}>
+          <ErrorBanner message={error} />
+
           <Card style={s.card} padded={false}>
             <View style={s.cardInner}>
-              <DetailRow Icon={User} label="الاسم" value={PROVIDER.shortName} />
-              <DetailRow Icon={Buildings} label="الورشة" value={PROVIDER.workshopShort} />
-              <DetailRow Icon={Phone} label="رقم الهاتف" valueNode={<Text style={s.phone}>{PROVIDER.phone}</Text>} />
-              <DetailRow Icon={ShieldCheck} label="حالة الحساب" valueNode={<StatusPill label="مفعّل" tone="success" />} last />
+              <DetailRow Icon={User} label="الاسم" value={name} />
+              <DetailRow Icon={Buildings} label="الورشة" value={provider?.businessName || "—"} />
+              <DetailRow
+                Icon={Phone}
+                label="رقم الهاتف"
+                valueNode={<Text style={s.phone}>{provider?.phone || "—"}</Text>}
+              />
+              {/* التقييم رقم واحد لا تحليل: تفصيله ورسومه في لوحة الويب */}
+              <DetailRow
+                Icon={Star}
+                label="التقييم"
+                value={
+                  provider?.averageRating
+                    ? `${arabicNumber(Number(provider.averageRating).toFixed(1))} من ٥`
+                    : "لا تقييم بعد"
+                }
+              />
+              <DetailRow
+                Icon={ShieldCheck}
+                label="حالة الحساب"
+                valueNode={<StatusPill label={state.label} tone={state.tone} />}
+                last
+              />
             </View>
           </Card>
+
+          {/* الفنّي غير المعتمد يحتاج تفسيراً لا شارةً صامتة: لماذا لا تصله
+              طلبات، ومن يرفع عنه هذا الحال. */}
+          {state.tone !== "success" ? (
+            <Card style={[s.noteCard, s.warnCard]}>
+              <View style={s.noteRow}>
+                <Info size={20} color={colors.warning} />
+                <Text style={s.noteText}>
+                  {state.tone === "warning"
+                    ? "حسابك قيد المراجعة من الإدارة — لن تصلك طلبات حتى اعتماده."
+                    : "حسابك موقوف حالياً. تواصل مع الإدارة لمعرفة التفاصيل."}
+                </Text>
+              </View>
+            </Card>
+          ) : null}
 
           <Card style={s.noteCard}>
             <View style={s.noteRow}>
@@ -99,18 +178,16 @@ export default function ProfileScreen({ navigation }) {
       <ConfirmSheet
         visible={confirmLogout}
         title="تسجيل الخروج"
-        message="ستحتاج إلى بيانات حسابك للدخول مجدداً."
+        message="ستحتاج إلى بيانات حسابك للدخول مجدداً، ولن تصلك طلبات حتى تعود."
         confirmLabel="خروج"
         cancelLabel="تراجع"
         danger
+        busy={busy}
         onCancel={() => setConfirmLogout(false)}
-        onConfirm={() => {
-          setConfirmLogout(false);
-          navigation?.replace?.("Login");
-        }}
+        onConfirm={onLogout}
       />
 
-      <ProviderNav active="account" onTab={goTab} unreadCount={1} />
+      <ProviderNav active="account" onTab={goTab} unreadCount={unreadNotifications} />
     </ProviderScreen>
   );
 }
@@ -163,6 +240,7 @@ const s = StyleSheet.create({
   phone: { fontSize: font.size.md, fontWeight: font.weight.bold, color: colors.textDark, writingDirection: "ltr" },
 
   noteCard: { padding: spacing.lg },
+  warnCard: { borderColor: colors.warningBg, backgroundColor: colors.warningBg },
   noteRow: { flexDirection: "row-reverse", alignItems: "center", gap: spacing.md },
   noteText: { flex: 1, minWidth: 0, fontSize: font.size.sm, color: colors.textBody, lineHeight: 21, textAlign: "right" },
 
