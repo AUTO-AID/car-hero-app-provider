@@ -37,7 +37,7 @@ const EMPTY_HOME = {
   todayCount: 0,
   unreadNotifications: 0,
   locationIntervalSeconds: 15,
-  offerWindowSeconds: 20,
+  offerWindowSeconds: 15,
 };
 
 export function SessionProvider({ children, onIncomingRequest, onRequestClosed, onActiveRequestChanged }) {

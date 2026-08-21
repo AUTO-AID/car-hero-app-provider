@@ -43,7 +43,9 @@ export default function NewRequestScreen({ navigation, route }) {
   // أحدهما وحده كان يُظهر شاشة فارغة لجزء من الثانية.
   const request = route?.params?.request || incomingRequest;
 
-  const total = request?.offer?.windowSeconds || offerWindowSeconds || 20;
+  // احتياطٌ أخير فقط: الخادم هو من يحسم النافذة، وهذا الرقم يطابق قيمته
+  // الافتراضية (PROVIDER_OFFER_WINDOW_SECONDS) كي لا يعرض العدّاد رقماً كاذباً.
+  const total = request?.offer?.windowSeconds || offerWindowSeconds || 15;
   const initialLeft = request?.offer?.secondsRemaining ?? total;
 
   const [left, setLeft] = useState(initialLeft);
