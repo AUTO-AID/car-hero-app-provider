@@ -11,12 +11,13 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Text from "../../components/AppText";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { BellRinging, CheckCircle, Megaphone, WarningCircle, XCircle } from "phosphor-react-native";
-import { AsyncContent, LinkText, PressableScale } from "../../components/ui";
+import { BellRinging, CheckCircle, Megaphone, Trash, WarningCircle, XCircle } from "phosphor-react-native";
+import { AsyncContent, ConfirmSheet, LinkText, PressableScale } from "../../components/ui";
 import { Card, IconTile, ProviderScreen, ScreenTitle, navClearance } from "../../components/providerUi";
 import ProviderNav from "../../components/ProviderNav";
 import { colors, font, providerRadius, spacing } from "../../theme/theme";
 import {
+  clearNotifications,
   fetchNotifications,
   markAllNotificationsRead,
   markNotificationRead,
@@ -102,6 +103,7 @@ export default function NotificationsScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [confirmClear, setConfirmClear] = useState(false);
 
   const aliveRef = useRef(true);
   useEffect(() => {
@@ -158,6 +160,29 @@ export default function NotificationsScreen({ navigation }) {
   };
 
   /**
+   * مسح المقروء فقط — **عن قصد**.
+   *
+   * صندوق الفنّي يمتلئ بعشرات إشعارات العروض في يوم واحد، وتنظيفه بالضغط على
+   * كل واحد غير عملي. لكن «امسح الكل» كان سيبتلع إشعار طلب وصل قبل ثانية ولم
+   * تقع عليه العين — أي عملاً ضائعاً. غير المقروء يبقى، ولهذا يظهر الزرّ فقط
+   * حين يوجد مقروء يستحقّ المسح.
+   *
+   * تفاؤلي مع تراجع: القائمة تُفرَّغ فوراً، وأي فشل يُعيد القراءة من الخادم
+   * فتعود البطاقات بدل أن تختفي كذباً.
+   */
+  const clearRead = async () => {
+    setConfirmClear(false);
+    const previous = items;
+    setItems((list) => (list || []).filter((entry) => !entry.isRead));
+    try {
+      await clearNotifications({ onlyRead: true });
+    } catch {
+      setItems(previous);
+      setError("تعذّر مسح التنبيهات، حاول مجدداً");
+    }
+  };
+
+  /**
    * يُعلّم كمقروء أولاً ثم ينتقل — نفس تسلسل `openNotification` عند العميل، كي
    * لا تبقى النقطة الحمراء بعد فتح التنبيه فعلاً.
    *
@@ -180,6 +205,7 @@ export default function NotificationsScreen({ navigation }) {
   };
 
   const unread = (items || []).filter((item) => !item.isRead).length;
+  const readCount = (items || []).length - unread;
 
   return (
     <ProviderScreen padded={false} withNav bottomInset={false}>
@@ -190,6 +216,22 @@ export default function NotificationsScreen({ navigation }) {
           // للضغط ولا يفعل شيئاً. الآن يعمل، ويختفي حين لا يبقى غير مقروء.
           action={unread > 0 ? <LinkText onPress={markAll}>تحديد الكل كمقروء</LinkText> : null}
         />
+
+        {/* «مسح المقروء» فعل مدمِّر، فلا يقف بلون الرابط نفسه بجوار فعل آمن:
+            يأخذ نغمة الخطر وسطراً خاصاً به، ويظهر فقط حين يوجد ما يُمسح. */}
+        {readCount > 0 ? (
+          <PressableScale
+            onPress={() => setConfirmClear(true)}
+            feedback="action"
+            accessibilityRole="button"
+            accessibilityLabel={`مسح التنبيهات المقروءة، ${readCount}`}
+            accessibilityHint="يحذف التنبيهات المقروءة ويُبقي غير المقروءة"
+            style={s.clearBtn}
+          >
+            <Trash size={16} weight="bold" color={colors.danger} />
+            <Text style={s.clearLabel}>مسح المقروء ({readCount})</Text>
+          </PressableScale>
+        ) : null}
       </View>
 
       <ScrollView
@@ -224,6 +266,16 @@ export default function NotificationsScreen({ navigation }) {
       </ScrollView>
 
       <ProviderNav active="alerts" onTab={goTab} unreadCount={unread} />
+
+      <ConfirmSheet
+        visible={confirmClear}
+        title="مسح التنبيهات المقروءة"
+        message={`سيُحذف ${readCount} تنبيهاً مقروءاً نهائياً. التنبيهات غير المقروءة تبقى كما هي.`}
+        confirmLabel="مسح"
+        cancelLabel="إلغاء"
+        onCancel={() => setConfirmClear(false)}
+        onConfirm={clearRead}
+      />
     </ProviderScreen>
   );
 }
@@ -231,6 +283,23 @@ export default function NotificationsScreen({ navigation }) {
 const s = StyleSheet.create({
   head: { paddingHorizontal: spacing.xl },
   scroll: { paddingHorizontal: spacing.xl, paddingTop: spacing.lg, gap: spacing.md },
+
+  clearBtn: {
+    alignSelf: "flex-start",
+    flexDirection: "row-reverse",
+    alignItems: "center",
+    gap: spacing.xs + 2,
+    marginTop: spacing.sm,
+    // هدف لمس كامل: الزرّ المدمِّر تحديداً لا يجوز أن يكون صغيراً يُضغط سهواً
+    minHeight: 40,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    borderRadius: providerRadius.tileSm,
+    backgroundColor: colors.dangerBg,
+    borderWidth: 1,
+    borderColor: colors.dangerSoft ?? colors.dangerBg,
+  },
+  clearLabel: { fontSize: font.size.sm, fontWeight: font.weight.bold, color: colors.danger },
 
   itemPress: { borderRadius: providerRadius.card },
   item: { padding: spacing.lg },

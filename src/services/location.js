@@ -60,13 +60,51 @@ export async function requestLocationPermission() {
   return true;
 }
 
-/** قراءة واحدة — تُستعمل عند «تشغيل الاتصال» وعند فتح شاشة التوجيه */
+/** أقصى عمر مقبول لموقع محفوظ نبدأ به — دقيقتان */
+const LAST_KNOWN_MAX_AGE_MS = 120_000;
+/** سقف انتظار القراءة الطازجة قبل الاستسلام */
+const FRESH_FIX_TIMEOUT_MS = 8_000;
+
+/**
+ * قراءة واحدة — تُستعمل عند «تشغيل الاتصال» وعند فتح شاشة التوجيه.
+ *
+ * **آخر موقع معروف أولاً.** القراءة الطازجة تحتاج تثبيتاً من الأقمار يستغرق
+ * ٥–١٥ ثانية داخل المباني، وكان الفنّي يضغط «تشغيل الاتصال» فيجمد الزرّ طوال
+ * تلك المدّة بلا تفسير. الموقع المحفوظ يصل فوراً ويكفي تماماً لاختيار
+ * المرشّحين (دقّته عشرات الأمتار، والنطاق عشرة كيلومترات)، ثم تصحّحه
+ * `watchPosition` خلال ثوانٍ من تشغيل الاتصال.
+ *
+ * `high: true` يتخطّى المحفوظ ويطلب الطازج — تستعمله الشاشات التي تحتاج دقّة
+ * فعلية لا تقديراً.
+ */
 export async function readCurrentPosition({ high = false } = {}) {
   await requestLocationPermission();
+
+  if (!high) {
+    try {
+      const cached = await Location.getLastKnownPositionAsync({
+        maxAge: LAST_KNOWN_MAX_AGE_MS,
+      });
+      if (cached?.coords) return toReading(cached);
+    } catch {
+      // لا موقع محفوظ — نكمل إلى القراءة الطازجة
+    }
+  }
+
   try {
-    const position = await Location.getCurrentPositionAsync({
-      accuracy: high ? Location.Accuracy.High : Location.Accuracy.Balanced,
-    });
+    // سباق مع مؤقّت: `getCurrentPositionAsync` قد لا تعود أبداً حين يتعذّر
+    // التثبيت (قبو، وضع طيران)، فتُبقي الزرّ معلّقاً إلى ما لا نهاية.
+    const position = await Promise.race([
+      Location.getCurrentPositionAsync({
+        accuracy: high ? Location.Accuracy.High : Location.Accuracy.Balanced,
+      }),
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new LocationError(LocationErrors.UNAVAILABLE, MESSAGES[LocationErrors.UNAVAILABLE])),
+          FRESH_FIX_TIMEOUT_MS,
+        ),
+      ),
+    ]);
     return toReading(position);
   } catch (error) {
     if (error instanceof LocationError) throw error;

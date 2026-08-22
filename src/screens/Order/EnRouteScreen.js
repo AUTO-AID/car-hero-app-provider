@@ -9,18 +9,16 @@
 import React, { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import Text from "../../components/AppText";
-// `Truck` لا `TowTruck`: الأخيرة **غير موجودة في phosphor** أصلاً، فكانت تصل
-// `undefined` وتُسقط الشاشة كلها إلى صفحة بيضاء عند الضغط على «بدء التوجيه».
-import { FlagCheckered, MapPin, NavigationArrow, Phone, Truck } from "phosphor-react-native";
+import { FlagCheckered, NavigationArrow, Phone } from "phosphor-react-native";
 import {
   BottomSheet,
   FloatingBar,
   GradientButton,
   IconTile,
-  MapCanvas,
   ProviderScreen,
   StatTile,
 } from "../../components/providerUi";
+import TrackingMap from "../../components/TrackingMap";
 import { ErrorBanner, PressableScale } from "../../components/ui";
 import { iconForService } from "../../components/serviceIcon";
 import { colors, font, layout, providerRadius, shadow, spacing } from "../../theme/theme";
@@ -32,15 +30,23 @@ import { useSession } from "../../context/SessionContext";
 import useRequestDetail from "../../hooks/useRequestDetail";
 
 export default function EnRouteScreen({ navigation, route }) {
-  const { markArrived } = useSession();
+  const { markArrived, position } = useSession();
   const { request, error } = useRequestDetail({ route, navigation });
 
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
+  // المسافة وزمن الوصول من محرّك التوجيه: الخادم يحسبهما بخطّ مستقيم، والفرق
+  // في مدينة مزدحمة يبلغ الضعف — ورقمٌ يَعِد العميل بما لا يقع أسوأ من غيابه.
+  const [routeInfo, setRouteInfo] = useState(null);
 
   const customerName = request?.customer?.name || "العميل";
   const phone = request?.customer?.phone;
   const { latitude, longitude } = request?.location || {};
+
+  const distanceKm =
+    routeInfo?.distanceKm != null ? Math.round(routeInfo.distanceKm * 10) / 10 : request?.distanceKm;
+  const etaMinutes =
+    routeInfo?.durationMin != null ? Math.max(1, Math.round(routeInfo.durationMin)) : request?.etaMinutes;
 
   const onArrived = async () => {
     if (busy || !request) return;
@@ -61,23 +67,12 @@ export default function EnRouteScreen({ navigation, route }) {
     // `wide`: الخريطة تملأ العرض ولا تُحصر في عمود — نفس ما يفعله تطبيق
     // العميل في `InteractiveMapScreen`.
     <ProviderScreen padded={false} topInset={false} bottomInset={false} wide style={s.root}>
-      <MapCanvas
-        rounded={false}
-        vertical
-        style={StyleSheet.absoluteFill}
-        accessibilityLabel={
-          request?.distanceKm != null
-            ? `خريطة التوجيه: أنت على بُعد ${request.distanceKm} كم من موقع العميل`
-            : "خريطة التوجيه إلى موقع العميل"
-        }
-      >
-        <View style={s.providerMarker}>
-          <Truck size={20} weight="fill" color={colors.onPrimary} />
-        </View>
-        <View style={s.custMarker}>
-          <MapPin size={22} weight="fill" color={colors.onPrimary} />
-        </View>
-      </MapCanvas>
+      <TrackingMap
+        height="fill"
+        origin={position}
+        destination={request?.location}
+        onRouteInfo={setRouteInfo}
+      />
 
       <FloatingBar>
         <View style={s.pill}>
@@ -111,14 +106,15 @@ export default function EnRouteScreen({ navigation, route }) {
         </View>
 
         <View style={s.statsRow}>
+          {/* رقم الطريق يسبق رقم الخادم: الأخير مسافة هوائية، وهذا مسافة سَوق */}
           <StatTile
-            value={request?.distanceKm != null ? arabicNumber(request.distanceKm) : "—"}
+            value={distanceKm != null ? arabicNumber(distanceKm) : "—"}
             unit="كم"
             label="متبقّية"
             style={s.statSurface}
           />
           <StatTile
-            value={request?.etaMinutes != null ? arabicNumber(request.etaMinutes) : "—"}
+            value={etaMinutes != null ? arabicNumber(etaMinutes) : "—"}
             unit="دقائق"
             label="للوصول"
             style={s.statSurface}
@@ -168,35 +164,6 @@ export default function EnRouteScreen({ navigation, route }) {
 
 const s = StyleSheet.create({
   root: { backgroundColor: colors.mapSurface },
-
-  providerMarker: {
-    position: "absolute",
-    left: 104,
-    bottom: 260,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.primary,
-    borderWidth: 4,
-    borderColor: colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-    ...shadow.button,
-  },
-  custMarker: {
-    position: "absolute",
-    right: 118,
-    top: 150,
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: colors.primaryLight,
-    borderWidth: 4,
-    borderColor: colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-    ...shadow.button,
-  },
 
   pill: {
     flexDirection: "row-reverse",

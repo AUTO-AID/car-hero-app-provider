@@ -19,7 +19,8 @@ import { clearSession, getUser, hasSession, saveUser } from "../services/tokenSt
 import * as providerApi from "../services/providerApi";
 import { closeSocket, createNotificationsSocket, createProviderSocket, ProviderEvents } from "../services/realtime";
 import { hasLocationPermission, readCurrentPosition, watchPosition } from "../services/location";
-import { clearBadge, listenToPush, registerForPush } from "../services/push";
+import { clearBadge, listenToPush, presentRequestAlert, registerForPush } from "../services/push";
+import { alertFeedback } from "../services/feedback";
 import { needsLocationTracking } from "../services/requestStatus";
 
 const SessionContext = createContext(null);
@@ -48,6 +49,8 @@ export function SessionProvider({ children, onIncomingRequest, onRequestClosed, 
   const [provider, setProvider] = useState(null);
   const [home, setHome] = useState(EMPTY_HOME);
   const [error, setError] = useState("");
+  /** آخر قراءة موقع للفنّي — مصدر السيارة على خريطة التوجيه */
+  const [position, setPosition] = useState(null);
 
   const socketRef = useRef(null);
   const notificationsSocketRef = useRef(null);
@@ -186,6 +189,22 @@ export function SessionProvider({ children, onIncomingRequest, onRequestClosed, 
   //  أفعال الطلب — كلها تمرّ بالخادم ثم تخزّن ما ردّ به
   // ------------------------------------------------------------
 
+  /**
+   * **يجب أن تبقى ثابتة المرجع.**
+   *
+   * كانت سهماً داخل `useMemo` القيمة، فتُبنى من جديد مع كل تغيّر في `home`.
+   * وشاشة التنبيهات تضعها في تبعيات `load`، و`load` في تبعيات `useEffect` —
+   * فكانت كل قراءة تُحدِّث العدّاد ⇒ يتغيّر `home` ⇒ تُبنى دالة جديدة ⇒
+   * يُعاد تشغيل التأثير ⇒ قراءة جديدة… حلقة لا نهائية تقصف الخادم وتُبقي
+   * الشاشة ترتجف.
+   */
+  const setUnreadCount = useCallback(
+    (count) => {
+      applyHome({ ...homeRef.current, unreadNotifications: Math.max(0, Number(count) || 0) });
+    },
+    [applyHome],
+  );
+
   const setActiveRequest = useCallback(
     (request) => {
       const merged = applyHome({ ...homeRef.current, activeRequest: request });
@@ -265,6 +284,21 @@ export function SessionProvider({ children, onIncomingRequest, onRequestClosed, 
       socket.on(ProviderEvents.REQUEST_NEW, ({ request }) => {
         if (!request) return;
         applyHome({ ...homeRef.current, incomingRequest: request });
+
+        // صوت واهتزاز قبل قفزة الشاشة: الفنّي قد يكون ناظراً إلى شيء آخر أو
+        // التطبيق في الخلفية، وثلاثون ثانية لا تحتمل أن يكتشف الطلب بالصدفة.
+        alertFeedback();
+        presentRequestAlert({
+          title: "طلب خدمة جديد",
+          body: [
+            request.serviceName,
+            request.distanceKm != null ? `على بُعد ${request.distanceKm} كم` : null,
+          ]
+            .filter(Boolean)
+            .join(" — ") || "لديك طلب بانتظار ردّك.",
+          data: { event: "provider_app.new_request", orderId: request.id },
+        });
+
         onIncomingRequest?.(request);
       });
 
@@ -291,9 +325,7 @@ export function SessionProvider({ children, onIncomingRequest, onRequestClosed, 
         return;
       }
       notificationsSocketRef.current = socket;
-      socket.on("unread_count", ({ count }) =>
-        applyHome({ ...homeRef.current, unreadNotifications: Number(count) || 0 }),
-      );
+      socket.on("unread_count", ({ count }) => setUnreadCount(count));
     })();
 
     return () => {
@@ -303,7 +335,7 @@ export function SessionProvider({ children, onIncomingRequest, onRequestClosed, 
       socketRef.current = null;
       notificationsSocketRef.current = null;
     };
-  }, [provider, applyHome, loadHome, onIncomingRequest, onRequestClosed, onActiveRequestChanged]);
+  }, [provider, applyHome, setUnreadCount, loadHome, onIncomingRequest, onRequestClosed, onActiveRequestChanged]);
 
   // ------------------------------------------------------------
   //  الإشعارات المدفوعة
@@ -346,6 +378,10 @@ export function SessionProvider({ children, onIncomingRequest, onRequestClosed, 
       const stop = await watchPosition(
         (reading) => {
           const active = activeRequestRef.current;
+          // نحتفظ بالقراءة لا نرسلها فقط: خريطة «في الطريق» ترسم سيارة الفنّي
+          // من موقعه الحيّ، وقراءتها من الخادم بعد رحلة ذهاب وإياب كانت
+          // ستجعلها تتحرّك متأخّرة عن الواقع بثوانٍ.
+          setPosition(reading);
           providerApi
             .pushLocation({
               ...reading,
@@ -403,6 +439,7 @@ export function SessionProvider({ children, onIncomingRequest, onRequestClosed, 
       clearError: () => setError(""),
 
       online: home.online,
+      position,
       activeRequest: home.activeRequest,
       incomingRequest: home.incomingRequest,
       todayCount: home.todayCount,
@@ -414,7 +451,7 @@ export function SessionProvider({ children, onIncomingRequest, onRequestClosed, 
       setOnline,
       refreshHome: loadHome,
       setActiveRequest,
-      setUnreadCount: (count) => applyHome({ ...homeRef.current, unreadNotifications: count }),
+      setUnreadCount,
       ...requestActions,
     }),
     [
@@ -422,11 +459,13 @@ export function SessionProvider({ children, onIncomingRequest, onRequestClosed, 
       provider,
       error,
       home,
+      position,
       signIn,
       signOut,
       setOnline,
       loadHome,
       setActiveRequest,
+      setUnreadCount,
       applyHome,
       requestActions,
     ],

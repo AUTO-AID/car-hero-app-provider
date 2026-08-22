@@ -23,19 +23,27 @@ import { useSession } from "../../context/SessionContext";
 import useRequestDetail from "../../hooks/useRequestDetail";
 
 /**
- * عدّاد المدّة يبدأ من `startedAt` القادم من الخادم لا من لحظة فتح الشاشة:
- * الفنّي قد يخرج إلى «طلباتي» ويعود، وإعادة العدّ من الصفر كانت تمحو المدّة
- * الحقيقية للخدمة — وهي رقم يُحتكم إليه لا زينة.
+ * عدّاد مدّة التنفيذ.
+ *
+ * يبدأ من **صفر** لحظةَ ضغط «بدء الخدمة»: الخادم يكتب `startedAt` في اللحظة
+ * نفسها التي ينتقل فيها الطلب إلى `in_progress`، فالفارق عند فتح الشاشة صفر.
+ * ويستمرّ من `startedAt` لا من لحظة فتح الشاشة، فخروج الفنّي إلى «طلباتي»
+ * وعودته لا يمحو المدّة الحقيقية — وهي رقم يُحتكم إليه لا زينة.
+ *
+ * `active` هو الحارس الذي كان ناقصاً: `startedAt` يبقى مكتوباً بعد انتهاء
+ * الخدمة، وطلبٌ أُعيد فتحه بحالة سابقة كان يعرض عدّاداً يجري منذ ساعات على
+ * خدمة لم تبدأ بعد. بلا حالة `in_progress` يبقى العدّاد على 00:00:00 ساكناً.
  */
-function useElapsed(startedAt) {
-  const [elapsed, setElapsed] = useState(() => secondsSince(startedAt));
+function useElapsed(startedAt, active) {
+  const from = active ? startedAt : null;
+  const [elapsed, setElapsed] = useState(() => secondsSince(from));
 
   useEffect(() => {
-    setElapsed(secondsSince(startedAt));
-    if (!startedAt) return undefined;
-    const id = setInterval(() => setElapsed(secondsSince(startedAt)), 1000);
+    setElapsed(secondsSince(from));
+    if (!from) return undefined;
+    const id = setInterval(() => setElapsed(secondsSince(from)), 1000);
     return () => clearInterval(id);
-  }, [startedAt]);
+  }, [from]);
 
   return formatDuration(elapsed);
 }
@@ -59,13 +67,17 @@ export default function InServiceScreen({ navigation, route }) {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
 
-  const duration = useElapsed(request?.timestamps?.startedAt);
+  const inProgress = request?.status === "in_progress";
+  const duration = useElapsed(request?.timestamps?.startedAt, inProgress);
 
   // الخطوات تُشتقّ من طوابع الخادم لا من مصفوفة ثابتة: القائمة الثابتة كانت
   // تعرض «الوصول للعميل ✓» حتى لو لم يُسجَّل الوصول أصلاً.
   const steps = [
     { key: "accepted", label: "قبول الطلب", done: !!request?.timestamps?.acceptedAt },
-    { key: "arrived", label: "الوصول للعميل", done: !!request?.timestamps?.startedAt },
+    // الوصول شرطٌ سابق للتنفيذ: بلوغ هذه الشاشة يعني وقوعه. كان معلّقاً على
+    // `startedAt` — أي على طابع **بدء الخدمة** نفسه، فكان يقول «لم تصل بعد»
+    // بينما الفنّي واقف عند السيارة يعمل.
+    { key: "arrived", label: "الوصول للعميل", done: true },
     { key: "working", label: "تنفيذ الخدمة الآن", active: true },
   ];
 

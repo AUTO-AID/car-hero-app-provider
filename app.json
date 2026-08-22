@@ -51,7 +51,10 @@
     "extra": {
       "_apiBaseUrl_note": "عنوان صريح يتفوّق على كل شيء. اتركه null أثناء التطوير: عندها يشتقّ config.js عنوان جهازك من مضيف Metro، فيعمل على المحاكي وعلى الهاتف الحقيقي عبر الشبكة بلا تعديل. للنشر: https://car-hero-backend.onrender.com",
       "apiBaseUrl": null,
-      "supportPhone": "+963 11 000 0000"
+      "supportPhone": "+963 11 000 0000",
+      "_tile_note": "بلاطات OpenStreetMap العامة: مجّانية بلا مفتاح وتكفي التطوير. سياسة استعمالها تمنع الأحمال الإنتاجية — عند النشر استبدلها بمزوّد يسمح بالتطبيقات (MapTiler / Stadia / Geoapify).",
+      "tileUrlTemplate": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+      "routingUrl": "https://router.project-osrm.org/route/v1/driving/{coords}?overview=full&geometries=geojson"
     }
   }
 }

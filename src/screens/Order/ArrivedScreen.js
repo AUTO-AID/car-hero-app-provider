@@ -2,10 +2,10 @@
 //  ArrivedScreen  —  ٦ · وصلت الموقع
 // ============================================================
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import Text from "../../components/AppText";
-import { MapPinArea, Phone, Wrench } from "phosphor-react-native";
+import { MapPinArea, Phone, Timer, Wrench } from "phosphor-react-native";
 import { ErrorBanner, IconButton, StatusPill } from "../../components/ui";
 import {
   Card,
@@ -16,6 +16,7 @@ import {
 } from "../../components/providerUi";
 import { iconForService } from "../../components/serviceIcon";
 import { colors, font, providerRadius, spacing } from "../../theme/theme";
+import { formatDuration, secondsSince } from "../../services/datetime";
 import { callNumber, canContact } from "../../services/contact";
 import { errorFeedback, successFeedback } from "../../services/feedback";
 import { useSession } from "../../context/SessionContext";
@@ -30,6 +31,19 @@ export default function ArrivedScreen({ navigation, route }) {
 
   const customerName = request?.customer?.name || "العميل";
   const phone = request?.customer?.phone;
+
+  // مدّة الانتظار منذ تسجيل الوصول. تُقرأ من الخادم لا من لحظة فتح الشاشة كي
+  // لا تُصفَّر بخروج الفنّي إلى «طلباتي» وعودته. تبقى فارغة على الطلبات التي
+  // سُجِّل وصولها قبل إضافة `arrivedAt` — سطرٌ غائب أصدق من صفر كاذب.
+  const arrivedAt = request?.timestamps?.arrivedAt;
+  const [waitSeconds, setWaitSeconds] = useState(() => secondsSince(arrivedAt));
+  useEffect(() => {
+    setWaitSeconds(secondsSince(arrivedAt));
+    if (!arrivedAt) return undefined;
+    const id = setInterval(() => setWaitSeconds(secondsSince(arrivedAt)), 1000);
+    return () => clearInterval(id);
+  }, [arrivedAt]);
+  const waiting = arrivedAt ? formatDuration(waitSeconds) : "";
 
   const onStart = async () => {
     if (busy || !request) return;
@@ -81,15 +95,31 @@ export default function ArrivedScreen({ navigation, route }) {
 
       <View style={s.spacer} />
 
+      {/* الانتظار عند السيارة يجب أن يكون مرئياً: بلا رقم لا يعرف الفنّي أنه
+          واقف منذ عشر دقائق لم تُحتسب له، والعميل لا يعرف لماذا لم تبدأ. */}
+      {waiting ? (
+        <View style={s.waitRow}>
+          <Timer size={16} weight="bold" color={colors.textMuted} />
+          <Text style={s.waitText}>منذ وصولك: {waiting}</Text>
+        </View>
+      ) : null}
+
       <GradientButton
         label={busy ? "جارٍ البدء…" : "بدء الخدمة"}
         tone="success"
-        height={62}
+        // أطول من زرّ عادي: هو الفعل الوحيد في الشاشة، والفنّي يضغطه واقفاً
+        // بيد واحدة أمام سيارة — لا جالساً ينظر إلى الهاتف.
+        height={68}
         disabled={busy || !request}
-        icon={<Wrench size={22} weight="fill" color={colors.onPrimary} />}
+        icon={<Wrench size={24} weight="fill" color={colors.onPrimary} />}
         onPress={onStart}
-        accessibilityHint="يبدأ تنفيذ الخدمة ويشغّل عدّاد المدة"
+        accessibilityHint="يبدأ تنفيذ الخدمة ويشغّل عدّاد المدة من الصفر"
+        style={s.cta}
       />
+
+      {/* ما سيحدث عند الضغط، قبل الضغط: العدّاد يبدأ ولا يمكن إيقافه، وهذا
+          ما يجعل الفنّي يضغط عند بدء العمل فعلاً لا عند وصوله. */}
+      <Text style={s.ctaHint}>يبدأ عدّاد مدّة التنفيذ من ٠٠:٠٠:٠٠ ويُبلَّغ العميل.</Text>
     </ProviderScreen>
   );
 }
@@ -120,4 +150,22 @@ const s = StyleSheet.create({
     backgroundColor: colors.successBg,
   },
   spacer: { flex: 1, minHeight: spacing.xl },
+
+  waitRow: {
+    flexDirection: "row-reverse",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs + 2,
+    marginBottom: spacing.md,
+  },
+  waitText: { fontSize: font.size.sm, color: colors.textMuted, fontVariant: ["tabular-nums"] },
+
+  cta: { alignSelf: "stretch" },
+  ctaHint: {
+    fontSize: font.size.xs,
+    color: colors.textMuted,
+    textAlign: "center",
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.lg,
+  },
 });

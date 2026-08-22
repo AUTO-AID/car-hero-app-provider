@@ -20,11 +20,11 @@ import {
   Card,
   DetailRow,
   GradientButton,
-  MapCanvas,
   ProviderScreen,
   ServiceRow,
 } from "../../components/providerUi";
 import { iconForService } from "../../components/serviceIcon";
+import TrackingMap from "../../components/TrackingMap";
 import { colors, font, providerRadius, spacing } from "../../theme/theme";
 import { formatMoney } from "../../services/money";
 import { arabicNumber, formatDateTimeLabel, formatRelative } from "../../services/datetime";
@@ -38,7 +38,7 @@ import useRequestDetail from "../../hooks/useRequestDetail";
 
 export default function RequestDetailsScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
-  const { startEnRoute } = useSession();
+  const { startEnRoute, position } = useSession();
   const { request, loading, error, reload } = useRequestDetail({ route, navigation });
 
   const [busy, setBusy] = useState(false);
@@ -162,22 +162,9 @@ export default function RequestDetailsScreen({ navigation, route }) {
               </View>
             </Card>
 
-            <MapCanvas
-              height={180}
-              accessibilityLabel={
-                request.distanceKm != null
-                  ? `خريطة تقريبية: موقع العميل على بُعد ${request.distanceKm} كم منك`
-                  : "خريطة تقريبية لموقع العميل"
-              }
-            >
-              <View style={s.custPinDot} />
-              {request.distanceKm != null ? (
-                <View style={s.mapBadge}>
-                  <NavigationArrow size={16} weight="fill" color={colors.primary} />
-                  <Text style={s.mapBadgeText}>{arabicNumber(request.distanceKm)} كم</Text>
-                </View>
-              ) : null}
-            </MapCanvas>
+            {/* خريطة حقيقية لا رسم تقريبي: الفنّي يقرّر من هذه الشاشة إن كان
+                سيقبل التوجّه، والمعالم الحقيقية حول العميل تحسم القرار. */}
+            <TrackingMap height={190} origin={position} destination={request.location} />
 
             <Card style={s.detailCard}>
               {/* الموعد أول ما يُقرأ في الحجز: هو ما يبني عليه الفنّي يومه */}
@@ -282,31 +269,6 @@ const s = StyleSheet.create({
   custName: { fontSize: font.size.md, fontWeight: font.weight.bold, color: colors.textDark, textAlign: "right" },
   custSub: { fontSize: font.size.label, color: colors.textMuted, textAlign: "right" },
   actBtn: { width: 44, height: 44, borderRadius: providerRadius.tileSm },
-
-  custPinDot: {
-    position: "absolute",
-    left: 24,
-    bottom: 26,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: colors.primary,
-    borderWidth: 3,
-    borderColor: colors.surface,
-  },
-  mapBadge: {
-    position: "absolute",
-    left: spacing.md,
-    top: spacing.md,
-    backgroundColor: colors.surface,
-    borderRadius: providerRadius.tileSm - 2,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    gap: spacing.sm,
-  },
-  mapBadgeText: { fontSize: font.size.sm, fontWeight: font.weight.bold, color: colors.textDark },
 
   detailCard: { paddingVertical: 0, paddingHorizontal: spacing.lg },
 

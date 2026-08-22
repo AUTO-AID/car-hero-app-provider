@@ -30,3 +30,16 @@ export function markNotificationRead(id) {
 export function markAllNotificationsRead() {
   return api.patch("/notifications/read-all", {}, { auth: true });
 }
+
+/**
+ * مسح الصندوق. `onlyRead` يُبقي ما لم يُقرأ بعد — وهو الخيار المعروض للفنّي:
+ * إشعار «طلب جديد» قد يصل أثناء ضغطه الزرّ، ومسحه معه يُضيع عملاً.
+ *
+ * DELETE /notifications?onlyRead=… → { deleted }
+ */
+export async function clearNotifications({ onlyRead = true } = {}) {
+  const res = await api.delete(`/notifications?onlyRead=${onlyRead ? "true" : "false"}`, {
+    auth: true,
+  });
+  return Number(res?.deleted ?? 0);
+}

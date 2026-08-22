@@ -70,6 +70,41 @@ export async function registerForPush() {
 }
 
 /**
+ * إشعار محلّي لطلب وارد — **الصوت الفعلي في التطبيق اليوم**.
+ *
+ * لماذا محلّي لا مدفوع: Expo Go على أندرويد لا يستقبل الإشعارات المدفوعة
+ * إطلاقاً (أزالتها Expo من SDK 53)، فكان وصول الطلب صامتاً تماماً: تقفز
+ * الشاشة إن كان التطبيق مفتوحاً، ولا شيء إن كان في الخلفية. الإشعار المحلّي
+ * يعمل في Expo Go بلا قيود، ويعطي الصوت والاهتزاز والشارة على شاشة القفل.
+ *
+ * حدّه: يحتاج التطبيق حيّاً ومقبسه متّصلاً. إن قتله النظام في السبات العميق
+ * فلا بديل عن بناء تطويري بـ FCM — وهو ما يجعل هذه الدالة جسراً لا حلاً
+ * نهائياً.
+ */
+export async function presentRequestAlert({ title, body, data } = {}) {
+  try {
+    if (Platform.OS === "web") return;
+    await ensureAndroidChannel();
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: title || "طلب خدمة جديد",
+        body: body || "لديك طلب بانتظار ردّك.",
+        data: data || {},
+        sound: "default",
+        priority: Notifications.AndroidNotificationPriority.MAX,
+        vibrate: [0, 250, 250, 250],
+        ...(Platform.OS === "android" ? { channelId: REQUEST_CHANNEL } : {}),
+      },
+      // فوراً لا مجدولاً: المهلة ثلاثون ثانية ولا تحتمل تأخيراً
+      trigger: null,
+    });
+  } catch {
+    // الإذن مرفوض أو المنصّة لا تدعم — البثّ اللحظي يبقى يقفز بالشاشة
+  }
+}
+
+/**
  * الاستماع للإشعارات. `onOpen` هو المسار الحرج: الفنّي ضغط الإشعار وهاتفه
  * مقفل، والتطبيق يجب أن يفتح على الطلب مباشرةً لا على الرئيسية.
  */
