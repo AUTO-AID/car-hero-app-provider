@@ -25,6 +25,7 @@ import {
 import { formatRelative } from "../../services/datetime";
 import { fetchRequest } from "../../services/providerApi";
 import { screenForRequest } from "../../services/requestStatus";
+import { openChat } from "../../services/contact";
 import { useSession } from "../../context/SessionContext";
 
 /**
@@ -193,13 +194,28 @@ export default function NotificationsScreen({ navigation }) {
     if (!item.isRead) markRead(item);
 
     const orderId = item?.data?.orderId;
+    const isMessage = item?.data?.event === "chat.new_message";
+
+    // رسالة بلا طلب صالح: نفتحها بالمحادثة وحدها. الشاشة تقبل `chatId`
+    // مباشرةً، وتكتفي باسم عامّ للعميل بدل ألّا تُفتح إطلاقاً.
+    if (isMessage && !orderId && item?.data?.chatId) {
+      navigation?.navigate?.("Chat", { chatId: item.data.chatId });
+      return;
+    }
     if (!orderId) return;
 
     try {
       const request = await fetchRequest(orderId);
+      // المحادثة تُفتح ببيانات الطلب كاملة (اسم العميل ورقمه)، لا بمعرّف
+      // مجرّد — فيبقى زرّ الاتصال داخلها عاملاً.
+      if (isMessage && openChat(navigation, request)) return;
       navigation?.navigate?.(screenForRequest(request), { id: request.id, request });
     } catch {
       // الطلب حُذف أو لم يعد لنا — القائمة أفضل من شاشة خطأ
+      if (isMessage && item?.data?.chatId) {
+        navigation?.navigate?.("Chat", { chatId: item.data.chatId });
+        return;
+      }
       navigation?.navigate?.("MyRequests");
     }
   };

@@ -29,7 +29,7 @@ import { colors, font, providerRadius, spacing } from "../../theme/theme";
 import { formatMoney } from "../../services/money";
 import { arabicNumber, formatDateTimeLabel, formatRelative } from "../../services/datetime";
 import { declineBooking } from "../../services/providerApi";
-import { callNumber, canContact, messageNumber } from "../../services/contact";
+import { callNumber, canChat, canContact, openChat } from "../../services/contact";
 import { openNavigation } from "../../services/navigationLink";
 import { statusMeta } from "../../services/requestStatus";
 import { errorFeedback, successFeedback } from "../../services/feedback";
@@ -141,23 +141,24 @@ export default function RequestDetailsScreen({ navigation, route }) {
                   </Text>
                   <Text style={s.custSub}>عميل Car Hero</Text>
                 </View>
-                {/* الزرّان يظهران فقط حين يوجد رقم: زرّ اتصال بلا رقم ينكمش
-                    ويهتزّ ولا يتّصل — أسوأ من غيابه لأن الفنّي ينتظر. */}
+                {/* كلّ زرّ يظهر بشرطه هو لا بشرط الآخر: الاتصال يحتاج رقماً،
+                    والمحادثة تحتاج معرّف عميل. زرّ بلا ما يعمل به ينكمش
+                    ويهتزّ ولا يفعل شيئاً — أسوأ من غيابه لأن الفنّي ينتظر. */}
                 {canContact(phone) ? (
-                  <>
-                    <IconButton
-                      label={`اتصال بالعميل ${customerName}`}
-                      onPress={() => callNumber(phone)}
-                      icon={<Phone size={20} weight="fill" color={colors.success} />}
-                      style={[s.actBtn, { backgroundColor: colors.successBg }]}
-                    />
-                    <IconButton
-                      label={`مراسلة العميل ${customerName}`}
-                      onPress={() => messageNumber(phone)}
-                      icon={<ChatCircle size={20} weight="fill" color={colors.primary} />}
-                      style={[s.actBtn, { backgroundColor: colors.tint }]}
-                    />
-                  </>
+                  <IconButton
+                    label={`اتصال بالعميل ${customerName}`}
+                    onPress={() => callNumber(phone)}
+                    icon={<Phone size={20} weight="fill" color={colors.success} />}
+                    style={[s.actBtn, { backgroundColor: colors.successBg }]}
+                  />
+                ) : null}
+                {canChat(request) ? (
+                  <IconButton
+                    label={`مراسلة العميل ${customerName}`}
+                    onPress={() => openChat(navigation, request)}
+                    icon={<ChatCircle size={20} weight="fill" color={colors.primary} />}
+                    style={[s.actBtn, { backgroundColor: colors.tint }]}
+                  />
                 ) : null}
               </View>
             </Card>

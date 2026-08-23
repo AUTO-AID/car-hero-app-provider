@@ -5,7 +5,7 @@
 import React, { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import Text from "../../components/AppText";
-import { MapPinArea, Phone, Timer, Wrench } from "phosphor-react-native";
+import { ChatCircle, MapPinArea, Phone, Timer, Wrench } from "phosphor-react-native";
 import { ErrorBanner, IconButton, StatusPill } from "../../components/ui";
 import {
   Card,
@@ -17,7 +17,7 @@ import {
 import { iconForService } from "../../components/serviceIcon";
 import { colors, font, providerRadius, spacing } from "../../theme/theme";
 import { formatDuration, secondsSince } from "../../services/datetime";
-import { callNumber, canContact } from "../../services/contact";
+import { callNumber, canChat, canContact, openChat } from "../../services/contact";
 import { errorFeedback, successFeedback } from "../../services/feedback";
 import { useSession } from "../../context/SessionContext";
 import useRequestDetail from "../../hooks/useRequestDetail";
@@ -81,14 +81,26 @@ export default function ArrivedScreen({ navigation, route }) {
           title={request?.serviceName || "خدمة"}
           subtitle={customerName}
           trailing={
-            canContact(phone) ? (
-              <IconButton
-                label={`اتصال بالعميل ${customerName}`}
-                onPress={() => callNumber(phone)}
-                icon={<Phone size={20} weight="fill" color={colors.success} />}
-                style={s.callBtn}
-              />
-            ) : null
+            /* الوصول هو أكثر لحظة يُسأل فيها «أين أنت بالضبط؟» — والمحادثة
+               تحمل الجواب مكتوباً بينما المكالمة تضيع. */
+            <View style={s.trailingRow}>
+              {canChat(request) ? (
+                <IconButton
+                  label={`مراسلة العميل ${customerName}`}
+                  onPress={() => openChat(navigation, request)}
+                  icon={<ChatCircle size={20} weight="fill" color={colors.primary} />}
+                  style={s.chatBtn}
+                />
+              ) : null}
+              {canContact(phone) ? (
+                <IconButton
+                  label={`اتصال بالعميل ${customerName}`}
+                  onPress={() => callNumber(phone)}
+                  icon={<Phone size={20} weight="fill" color={colors.success} />}
+                  style={s.callBtn}
+                />
+              ) : null}
+            </View>
           }
         />
       </Card>
@@ -143,11 +155,19 @@ const s = StyleSheet.create({
   },
   error: { alignSelf: "stretch", marginTop: spacing.lg },
   card: { alignSelf: "stretch", marginTop: spacing.xxl + spacing.xs },
+  // زرّان في نهاية الصفّ: المحادثة أولاً لأنها الأنسب للسؤال المكتوب
+  trailingRow: { flexDirection: "row-reverse", alignItems: "center", gap: spacing.sm },
   callBtn: {
     width: 46,
     height: 46,
     borderRadius: providerRadius.tileSm,
     backgroundColor: colors.successBg,
+  },
+  chatBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: providerRadius.tileSm,
+    backgroundColor: colors.tint,
   },
   spacer: { flex: 1, minHeight: spacing.xl },
 

@@ -9,7 +9,7 @@
 import React, { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import Text from "../../components/AppText";
-import { FlagCheckered, NavigationArrow, Phone } from "phosphor-react-native";
+import { ChatCircle, FlagCheckered, NavigationArrow, Phone } from "phosphor-react-native";
 import {
   BottomSheet,
   FloatingBar,
@@ -22,7 +22,7 @@ import TrackingMap from "../../components/TrackingMap";
 import { ErrorBanner, PressableScale } from "../../components/ui";
 import { iconForService } from "../../components/serviceIcon";
 import { colors, font, layout, providerRadius, shadow, spacing } from "../../theme/theme";
-import { callNumber, canContact } from "../../services/contact";
+import { callNumber, canChat, canContact, openChat } from "../../services/contact";
 import { openNavigation } from "../../services/navigationLink";
 import { arabicNumber } from "../../services/datetime";
 import { errorFeedback, successFeedback } from "../../services/feedback";
@@ -123,6 +123,21 @@ export default function EnRouteScreen({ navigation, route }) {
               اسم مسموع. هو زرّ لا رقم، فيأخذ هيئة الزرّ وقياس البطاقة معاً
               كي يبقى الصفّ مستوياً. بلا رقم يصير زرّ توجيه — الصفّ لا يبقى
               ناقصاً خانة. */}
+          {/* المحادثة أولاً أثناء القيادة: الكتابة بضغطة ردٍّ جاهز أأمن من
+              مكالمة، والعميل يقرأ متى استطاع. */}
+          {canChat(request) ? (
+            <PressableScale
+              onPress={() => openChat(navigation, request)}
+              feedback="action"
+              accessibilityRole="button"
+              accessibilityLabel={`مراسلة العميل ${customerName}`}
+              accessibilityHint="يفتح محادثة الطلب"
+              style={[s.callTile, s.chatTile]}
+            >
+              <ChatCircle size={22} weight="fill" color={colors.primary} />
+              <Text style={[s.callLabel, s.chatLabel]}>مراسلة</Text>
+            </PressableScale>
+          ) : null}
           {canContact(phone) ? (
             <PressableScale
               onPress={() => callNumber(phone)}
@@ -210,7 +225,9 @@ const s = StyleSheet.create({
     borderColor: colors.successRingMid,
   },
   navTile: { backgroundColor: colors.tint, borderColor: colors.primarySoft },
+  chatTile: { backgroundColor: colors.tint, borderColor: colors.primarySoft },
   callLabel: { fontSize: font.size.xs, fontWeight: font.weight.bold, color: colors.success },
+  chatLabel: { color: colors.primary },
 
   cta: { marginTop: spacing.lg },
 });

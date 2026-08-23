@@ -41,7 +41,13 @@ const EMPTY_HOME = {
   offerWindowSeconds: 15,
 };
 
-export function SessionProvider({ children, onIncomingRequest, onRequestClosed, onActiveRequestChanged }) {
+export function SessionProvider({
+  children,
+  onIncomingRequest,
+  onRequestClosed,
+  onActiveRequestChanged,
+  onOpenChat,
+}) {
   // `booting` منفصل عن `loading`: الأول يمسك الشاشة قبل أن نعرف إن كان هناك
   // حساب أصلاً، والثاني يعطّل أزراراً أثناء نداء. خلطهما كان يعرض شاشة الدخول
   // ومضةً لفنّي مسجَّل دخوله فعلاً.
@@ -349,12 +355,18 @@ export function SessionProvider({ children, onIncomingRequest, onRequestClosed, 
       // ضغط الإشعار وهاتفه مقفل: يجب أن يفتح على الطلب مباشرةً. نقرأ الرئيسية
       // لأن حمولة الإشعار مختصرة (معرّفات فقط) والمهلة قد تكون تقلّصت.
       onOpen: async (data) => {
+        // رسالة من العميل: تُفتح المحادثة مباشرةً. الضغط على إشعار لا يفتح
+        // شيئاً هو أسوأ من عدم إرساله — الفنّي يظنّ التطبيق معطّلاً.
+        if (data?.event === "chat.new_message") {
+          onOpenChat?.({ chatId: data.chatId, orderId: data.orderId });
+          return;
+        }
         if (data?.event !== "provider_app.new_request") return;
         const fresh = await loadHome().catch(() => null);
         if (fresh?.incomingRequest) onIncomingRequest?.(fresh.incomingRequest);
       },
     });
-  }, [provider, loadHome, onIncomingRequest]);
+  }, [provider, loadHome, onIncomingRequest, onOpenChat]);
 
   // ------------------------------------------------------------
   //  نبضة الموقع

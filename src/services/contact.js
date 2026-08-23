@@ -7,6 +7,11 @@
 //
 //  النقل نفسه المستعمل في تطبيق العميل (`OrderTrackingScreen` ·
 //  `ProviderFoundScreen` · `ChatScreen`): `Linking.openURL("tel:")`.
+//
+//  أمّا المراسلة فداخل التطبيق الآن (`screens/Order/ChatScreen`) لا عبر
+//  `sms:`. الرسالة النصّية كانت تخرج من المنصّة كلّها: العميل يكتب في
+//  محادثة التطبيق ولا يقرؤها أحد، والفنّي يردّ برسالة هاتفية لا تظهر عند
+//  العميل. `openChat` أدناه هو المسار الوحيد.
 // ============================================================
 
 import { Linking } from "react-native";
@@ -27,12 +32,22 @@ export const callNumber = (phone) => {
   return true;
 };
 
-// مؤقّتاً رسالة نصّية: تطبيق العميل يراسل عبر محادثة داخلية (`chatApi` +
-// `ChatScreen`)، ولا نظير لها هنا بعد. عند نقلها يُستبدل جسم هذه الدالة
-// وحدها بـ`navigation.navigate("Chat")` ولا تُلمس الشاشات الثلاث.
-export const messageNumber = (phone) => {
-  const number = sanitize(phone);
-  if (!number) return false;
-  Linking.openURL(`sms:${number}`).catch(() => {});
+/**
+ * فتح محادثة الطلب.
+ *
+ * المنطق هنا لا في الشاشات كي يبقى شرط الفتح قراراً واحداً: بلا معرّف عميل
+ * أو معرّف طلب لا محادثة، والشاشة تُخفي الزرّ بدل أن تعرضه صامتاً — كما تفعل
+ * مع `canContact`.
+ */
+export const canChat = (request) => !!(request?.id && request?.customer?.id);
+
+export const openChat = (navigation, request) => {
+  if (!canChat(request)) return false;
+  navigation?.navigate?.("Chat", {
+    orderId: request.id,
+    customerId: request.customer.id,
+    customerName: request.customer.name,
+    customerPhone: request.customer.phone,
+  });
   return true;
 };

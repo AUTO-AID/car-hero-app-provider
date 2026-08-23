@@ -43,6 +43,7 @@ import InServiceScreen from "./src/screens/Order/InServiceScreen";
 import CompletedScreen from "./src/screens/Order/CompletedScreen";
 import MyRequestsScreen from "./src/screens/Order/MyRequestsScreen";
 import PastRequestScreen from "./src/screens/Order/PastRequestScreen";
+import ChatScreen from "./src/screens/Order/ChatScreen";
 
 // الحساب والتنبيهات
 import NotificationsScreen from "./src/screens/Account/NotificationsScreen";
@@ -65,12 +66,13 @@ const ROUTE_TO_STEP = {
   Completed: "completed",
   MyRequests: "myRequests",
   PastRequest: "pastRequest",
+  Chat: "chat",
   Notifications: "notifications",
   Profile: "profile",
 };
 
 // شاشات دورة الطلب — الخروج منها يقع تلقائياً حين ينتهي الطلب من طرف آخر
-const ORDER_STEPS = ["newRequest", "requestDetails", "enRoute", "arrived", "inService"];
+const ORDER_STEPS = ["newRequest", "requestDetails", "enRoute", "arrived", "inService", "chat"];
 
 export default function App() {
   const [fontsLoaded, fontError] = useFonts({
@@ -217,6 +219,20 @@ function Root({ fontsReady = true }) {
     [resetTo],
   );
 
+  /**
+   * ضغط الفنّي على إشعار رسالة — من الإشعار المدفوع والهاتف مقفل.
+   *
+   * نفتح المحادثة بما وصل من الحمولة فقط: `chatId` يكفي الشاشة لتحميل
+   * الرسائل، والاسم والرقم يظهران حين يكون `orderId` معروفاً.
+   */
+  const handleOpenChat = useCallback(
+    (data) => {
+      if (!data?.chatId && !data?.orderId) return;
+      goTo("chat", { chatId: data.chatId, orderId: data.orderId });
+    },
+    [goTo],
+  );
+
   if (!fontsReady) return <View style={{ flex: 1, backgroundColor: colors.screenBg }} />;
 
   return (
@@ -224,6 +240,7 @@ function Root({ fontsReady = true }) {
       onIncomingRequest={handleIncomingRequest}
       onRequestClosed={handleRequestClosed}
       onActiveRequestChanged={handleActiveRequestChanged}
+      onOpenChat={handleOpenChat}
     >
       <Screens nav={nav} route={route} step={step} setStep={setStep} setNavStack={setNavStack} setRouteParams={setRouteParams} />
     </SessionProvider>
@@ -424,6 +441,7 @@ function Screens({ nav, route, step, setStep, setNavStack, setRouteParams }) {
 
       {/* سجلّ طلب منتهٍ — للقراءة فقط، لا يشارك دورة الطلب النشِط */}
       {step === "pastRequest" && <PastRequestScreen navigation={nav} route={route} />}
+      {step === "chat" && <ChatScreen navigation={nav} route={route} />}
 
       {/* الشريط السفلي */}
       {step === "myRequests" && <MyRequestsScreen navigation={nav} route={route} />}
