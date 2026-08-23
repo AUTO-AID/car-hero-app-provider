@@ -385,8 +385,8 @@ export function SessionProvider({ children, onIncomingRequest, onRequestClosed, 
           providerApi
             .pushLocation({
               ...reading,
-              // معرّف الطلب يُرفق فقط حين يكون التتبّع مفيداً للعميل: بعد
-              // «وصلت» لم يعد هناك ما يُتتبّع، وإرساله كان يُرفض بـ 400.
+              // معرّف الطلب يُرفق ما دام الطلب في مرحلة يستفيد فيها العميل
+              // من رؤية الموقع — والمجموعة مطابقة لما يقبله الخادم.
               orderId: active && needsLocationTracking(active.status) ? active.id : undefined,
             })
             .catch(() => {});

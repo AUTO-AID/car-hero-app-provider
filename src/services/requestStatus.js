@@ -102,6 +102,20 @@ export function screenForRequest(request) {
   return screenForStatus(request.status);
 }
 
-/** هل يحتاج هذا الطلب إرسال نبضات موقع؟ */
+/**
+ * هل يحتاج هذا الطلب إرسال نبضات موقع؟
+ *
+ * المجموعة مطابقة لما يقبله الخادم في `update-provider-location.use-case`.
+ * كانت تتوقّف عند «في الطريق» ظنّاً أن ما بعده يُرفض بـ 400 — والخادم يقبله.
+ * فكانت خريطة العميل تتجمّد لحظة الوصول ثم تُعلن «انقطع التحديث» بعد دقيقتين،
+ * وهو إنذار كاذب: الفنّي واقف أمامه. والموقع بعد الوصول يفيد فعلاً — يرى
+ * العميل أين ركن الفنّي بالضبط.
+ */
 export const needsLocationTracking = (status) =>
-  [OrderStatus.ACCEPTED, OrderStatus.PROVIDER_ASSIGNED, OrderStatus.PROVIDER_EN_ROUTE].includes(status);
+  [
+    OrderStatus.ACCEPTED,
+    OrderStatus.PROVIDER_ASSIGNED,
+    OrderStatus.PROVIDER_EN_ROUTE,
+    OrderStatus.PROVIDER_ARRIVED,
+    OrderStatus.IN_PROGRESS,
+  ].includes(status);
