@@ -45,7 +45,7 @@ export default function NewRequestScreen({ navigation, route }) {
 
   // احتياطٌ أخير فقط: الخادم هو من يحسم النافذة، وهذا الرقم يطابق قيمته
   // الافتراضية (PROVIDER_OFFER_WINDOW_SECONDS) كي لا يعرض العدّاد رقماً كاذباً.
-  const total = request?.offer?.windowSeconds || offerWindowSeconds || 15;
+  const total = request?.offer?.windowSeconds || offerWindowSeconds || 45;
   const initialLeft = request?.offer?.secondsRemaining ?? total;
 
   const [left, setLeft] = useState(initialLeft);

@@ -38,7 +38,7 @@ const EMPTY_HOME = {
   todayCount: 0,
   unreadNotifications: 0,
   locationIntervalSeconds: 15,
-  offerWindowSeconds: 15,
+  offerWindowSeconds: 45,
 };
 
 export function SessionProvider({
@@ -292,7 +292,7 @@ export function SessionProvider({
         applyHome({ ...homeRef.current, incomingRequest: request });
 
         // صوت واهتزاز قبل قفزة الشاشة: الفنّي قد يكون ناظراً إلى شيء آخر أو
-        // التطبيق في الخلفية، وثلاثون ثانية لا تحتمل أن يكتشف الطلب بالصدفة.
+        // التطبيق في الخلفية، ونافذة الردّ لا تحتمل أن يكتشف الطلب بالصدفة.
         alertFeedback();
         presentRequestAlert({
           title: "طلب خدمة جديد",
