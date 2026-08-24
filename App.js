@@ -46,6 +46,7 @@ import PastRequestScreen from "./src/screens/Order/PastRequestScreen";
 import ChatScreen from "./src/screens/Order/ChatScreen";
 
 // الحساب والتنبيهات
+import { qaState, qaRouteParams } from "./src/services/qa";
 import NotificationsScreen from "./src/screens/Account/NotificationsScreen";
 import ProfileScreen from "./src/screens/Account/ProfileScreen";
 
@@ -342,8 +343,23 @@ function Screens({ nav, route, step, setStep, setNavStack, setRouteParams }) {
 
   const authSteps = ["login", "forgotPassword", "otp", "resetPassword", "passwordChanged"];
 
+  // قفزة تطويرية إلى أي شاشة عبر ?qa=<step> — تُلغى تلقائياً خارج __DEV__.
+  // كثير من الشاشات يقع خلف تدفّقات ذات آثار خارجية (قبول طلب فعلي، رسائل
+  // OTP)، فالوصول إليها للفحص كان يتطلّب تعديل الكود ثم عكسه في كل مرّة.
+  const qaJumpedRef = useRef(false);
+  useEffect(() => {
+    if (booting || qaJumpedRef.current) return;
+    const qaStep = qaState();
+    if (!qaStep) return;
+    qaJumpedRef.current = true;
+    setRouteParams(qaRouteParams());
+    setStep(qaStep);
+  }, [booting]);
+
   useEffect(() => {
     if (booting) return;
+    // القفزة التطويرية تتجاوز حرّاس الجلسة، وإلا أعادتها فوراً إلى الرئيسية
+    if (qaJumpedRef.current) return;
     // خروج (أو طرد جلسة) ونحن داخل التطبيق → شاشة الدخول
     if (!isAuthenticated && !authSteps.includes(step)) {
       setNavStack([]);

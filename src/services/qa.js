@@ -25,6 +25,32 @@ export function qaIs(value, key = "qa") {
 }
 
 /**
+ * كل معطيات الرابط عدا ?qa نفسه، لتُزرع كـ route.params للشاشة المقفوز إليها.
+ *
+ * القفزة كانت تصل الشاشة بلا معطيات، فكل شاشة تعتمد على معرّف (طلب، محادثة)
+ * تعرض «غير متوفر» بدل محتواها الحقيقي. تُرجع {} خارج __DEV__.
+ */
+export function qaRouteParams() {
+  if (!__DEV__ || Platform.OS !== "web") return {};
+  try {
+    const out = {};
+    new URLSearchParams(window.location.search).forEach((value, key) => {
+      if (key === "qa") return;
+      // معطيات الرابط نصوص دائماً، بينما تتوقّع الشاشات أرقاماً ومنطقيات.
+      // المعرّفات تبقى نصوصاً: ObjectId المكوّن من أرقام فقط يفقد خاناته
+      // إن حُوّل إلى رقم، فيصير معرّفاً آخر لا وجود له.
+      const isId = /Id$/.test(key) || key === "id";
+      if (value === "true" || value === "false") out[key] = value === "true";
+      else if (!isId && value !== "" && Number.isFinite(Number(value))) out[key] = Number(value);
+      else out[key] = value;
+    });
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/**
  * معطيات مسار من الرابط لشاشة قُفز إليها بـ ?qa=<step>.
  *
  * القفزة التطويرية تصل الشاشة بلا route.params، فتبدو الشاشات التي تعتمد على
