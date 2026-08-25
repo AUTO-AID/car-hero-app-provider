@@ -167,7 +167,14 @@ export default function ChatScreen({ navigation, route }) {
 
       // الانضمام يُعاد بعد كل اتصال: بعد أول انقطاع يعود المقبس ويخرج من
       // غرفته بصمت، فيبدو التطبيق متصلاً ولا تصله رسالة واحدة.
-      const join = () => { setConnected(true); socket.emit("join_chat", { chatId }); };
+      // فتح المحادثة قراءةٌ لها: `message_read` لم يكن يُرسَل من أي تطبيق،
+      // فبقي `markAsRead` على الخادم شيفرةً ميتة وعدّاد «غير المقروء»
+      // متصاعداً بلا رجعة.
+      const join = () => {
+        setConnected(true);
+        socket.emit("join_chat", { chatId });
+        socket.emit("message_read", { chatId });
+      };
       socket.on("connect", join);
       socket.on("disconnect", () => setConnected(false));
       socket.on("connect_error", () => setConnected(false));
@@ -175,9 +182,12 @@ export default function ChatScreen({ navigation, route }) {
 
       socket.on("new_message", (message) => {
         setMessages((prev) => mergeIncoming(prev, message, myIdRef.current));
+        if (!isMine(message, myIdRef.current)) socket.emit("message_read", { chatId });
         scrollDown();
       });
       socket.on("error", (e) => setNotice(e?.message || "حدث خطأ في الاتصال بالمحادثة"));
+      // الرفض القادم من الخادم يُبثّ على `exception` لا `error` (سلوك Nest)
+      socket.on("exception", (e) => setNotice(e?.message || "تعذّر تنفيذ العملية في المحادثة"));
     }).catch(() => {});
 
     return () => {
