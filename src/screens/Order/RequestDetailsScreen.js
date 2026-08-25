@@ -118,7 +118,7 @@ export default function RequestDetailsScreen({ navigation, route }) {
 
             <Card raised>
               <ServiceRow
-                Icon={iconForService(request.serviceName)}
+                Icon={iconForService(request)}
                 title={request.serviceName || "خدمة"}
                 subtitle={`طلب ‏#${request.shortNumber}${
                   request.timestamps?.acceptedAt

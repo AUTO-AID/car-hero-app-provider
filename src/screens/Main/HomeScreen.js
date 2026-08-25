@@ -239,7 +239,7 @@ export default function HomeScreen({ navigation }) {
             <SectionHeader title="طلبك النشِط" actionLabel="فتح" onAction={openActive} />
             <Card>
               <ServiceRow
-                Icon={iconForService(activeRequest.serviceName)}
+                Icon={iconForService(activeRequest)}
                 title={activeRequest.serviceName || "خدمة"}
                 subtitle={`طلب ‏#${activeRequest.shortNumber} · ${statusLabel(activeRequest.status)}`}
                 size={52}

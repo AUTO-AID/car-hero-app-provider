@@ -77,7 +77,7 @@ export default function ArrivedScreen({ navigation, route }) {
 
       <Card style={s.card}>
         <ServiceRow
-          Icon={iconForService(request?.serviceName)}
+          Icon={iconForService(request)}
           title={request?.serviceName || "خدمة"}
           subtitle={customerName}
           trailing={

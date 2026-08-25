@@ -145,7 +145,7 @@ export default function PastRequestScreen({ navigation, route }) {
 
   const meta = statusMeta(request.status);
   const canceled = isCanceled(request.status);
-  const Icon = iconForService(request.serviceName);
+  const Icon = iconForService(request);
   const steps = buildSteps(request);
   const duration = serviceDuration(request.timestamps);
   const startedAt = request.timestamps?.startedAt;

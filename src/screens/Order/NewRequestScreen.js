@@ -140,7 +140,7 @@ export default function NewRequestScreen({ navigation, route }) {
 
   const dashoffset = progress.interpolate({ inputRange: [0, 1], outputRange: [CIRC, 0] });
   const expired = left === 0;
-  const Icon = iconForService(request.serviceName);
+  const Icon = iconForService(request);
 
   return (
     <ProviderScreen gradient={gradients.night}>

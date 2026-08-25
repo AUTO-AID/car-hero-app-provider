@@ -36,7 +36,7 @@ const TABS = [
 function RequestCard({ request, onPress }) {
   const state = statusMeta(request.status);
   const canceled = isCanceled(request.status);
-  const Icon = iconForService(request.serviceName);
+  const Icon = iconForService(request);
 
   const place = [
     request.address,

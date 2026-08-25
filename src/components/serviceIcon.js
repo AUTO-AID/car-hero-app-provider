@@ -1,104 +1,73 @@
 // ============================================================
-//  serviceIcon — أيقونة الخدمة من اسمها
+//  serviceIcon — أيقونة الخدمة، قراراً واحداً لكل التطبيق
 //
-//  كانت كل شاشة تختار أيقونة الخدمة بيدها، فظهرت الخدمة الواحدة برمزين
-//  مختلفين حسب الشاشة التي فُتحت منها. القرار هنا مرّة واحدة، بنفس منطق
-//  `iconFor` في `ServiceCatalogScreen` عند تطبيق العميل — والاثنان يقرآن
-//  الاسم العربي والإنجليزي معاً لأن الخادم قد يُرجع أيّهما.
+//  كان هذا الملف يخمّن الأيقونة من **اسم** الخدمة وحده بأربع وعشرين قاعدة،
+//  لأن حمولة الطلب لم تكن تحمل الفئة أصلاً. وتطبيق العميل يقرؤها من الفئة —
+//  فظهر الطلب الواحد برمزين مختلفين على الشاشتين لنفس الخدمة.
 //
-//  `Truck` لا `TowTruck`: الأخيرة غير موجودة في phosphor، وأيقونة غائبة تصل
-//  `undefined` فتُسقط الشاشة كلها إلى صفحة بيضاء بلا خطأ يشير إليها. كل
-//  أيقونة في الجدول أدناه تحقّقنا من وجودها في الحزمة.
+//  الخادم صار يرسل `serviceCategory` في حمولة طلب الفنّي، فالمطابقة هنا
+//  بالفئة أولاً (قائمة مغلقة لا لبس فيها) ثم بالاسم حين تغيب — وهي تغيب في
+//  الطلبات القديمة وفي خدمات يكتبها المزوّد بنفسه.
+//
+//  نظيره في تطبيق العميل: `newapp2/carApp/src/components/serviceIcon.js`
+//  — الجدولان متطابقان عمداً كي لا يرى العميل رمزاً ويرى الفنّي غيره لنفس الطلب.
 // ============================================================
 
-import {
-  ArrowsClockwise,
-  CarBattery,
-  Disc,
-  Drop,
-  Engine,
-  FirstAid,
-  GasPump,
-  Gauge,
-  Gear,
-  Key,
-  Lightning,
-  PaintRoller,
-  ShieldCheck,
-  Snowflake,
-  Sparkle,
-  SprayBottle,
-  Tire,
-  Toolbox,
-  Truck,
-  Wrench,
-} from "phosphor-react-native";
+import { Wrench } from "phosphor-react-native";
+import { catalogEntry } from "../services/serviceCatalog";
 
 /**
- * تطبيع النصّ العربي قبل المطابقة.
- *
- * الخادم يستقبل أسماء الخدمات من الإدارة كما تُكتب، والكاتب البشري لا يوحّد
- * الهمزات: «إطار» و«اطار» و«أطار» ثلاث كتابات لخدمة واحدة. بلا تطبيع كنّا
- * نحتاج كل صيغة في كل نمط — وأول صيغة تُنسى تُسقط الخدمة إلى الأيقونة
- * الافتراضية بلا سبب ظاهر.
+ * تطبيع النصّ العربي قبل المطابقة: «إطار» و«اطار» و«أطار» كتاباتٌ ثلاث لخدمة
+ * واحدة، وبلا توحيدها كنّا نحتاج كل صيغة في كل نمط — وأوّل صيغة تُنسى تُسقط
+ * الخدمة إلى الأيقونة الافتراضية بلا سبب ظاهر.
  */
 function normalize(value) {
   return String(value || "")
     .toLowerCase()
-    .replace(/[ً-ْـ]/g, "") // تشكيل وتطويل
-    .replace(/[أإآٱ]/g, "ا") // أ إ آ ٱ ← ا
-    .replace(/ة/g, "ه") // ة ← ه
-    .replace(/[ىئ]/g, "ي") // ى ئ ← ي
-    .replace(/ؤ/g, "و"); // ؤ ← و
+    .replace(/[ً-ْـ]/g, "")
+    .replace(/[أإآٱ]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/[ىئ]/g, "ي")
+    .replace(/ؤ/g, "و");
 }
 
 /**
- * الترتيب مقصود: الأخصّ أوّلاً.
- *
- * «شحن بطارية» يحوي «شحن» و«بطار» معاً، و«غسيل محرك» يحوي «غسيل» و«محرك».
- * القاعدة الأولى المطابِقة هي التي تفوز، فالأخصّ يجب أن يسبق الأعمّ — وإلا
- * حملت خدمتان مختلفتان الرمز نفسه.
+ * الاسم ← فئة من الكتالوج. الترتيب مقصود: الأخصّ أوّلاً، لأن أول قاعدة مطابِقة
+ * هي التي تفوز — «غسيل محرك» يحوي «غسيل» و«محرك» معاً، و«شحن بطارية» يحوي
+ * «شحن» و«بطار».
  */
 const RULES = [
-  // ---- الأعطال الميدانية (جوهر التطبيق) ----
-  [/batter|jump.?pack|بطار|شحن كهرب/, CarBattery],
-  [/\btow(ing)?\b|winch|سحب|قطر|ونش|جر مركب/, Truck],
-  [/tire|tyre|wheel|puncture|flat|اطار|كفر|بنشر|عجل|دولاب/, Tire],
-  [/fuel|petrol|diesel|gasoline|وقود|بنزين|مازوت|ديزل|تعبئ/, GasPump],
-  [/lock|unlock|keys?\b|locksmith|فتح قفل|مفتاح|مفاتيح|قفل|اقفال/, Key],
-  [/jump.?start|boost|تشغيل المحرك/, Lightning],
-
-  // ---- الصيانة الدورية ----
-  [/oil|lubric|زيت|شحوم/, Drop],
-  [/filter|فلتر|مصفا/, ArrowsClockwise],
-  [/brake|فرام|فحمات|بريك|بطان/, Disc],
-  [/(^|[^a-z])a\/?c([^a-z]|$)|air.?cond|climate|cooling|تكييف|تبريد|مكيف|ريدتر|رادتر/, Snowflake],
-  [/electric|wiring|alternator|كهرب|اسلاك|دينامو|مولد/, Lightning],
-  [/engine|motor\b|محرك|مكنه|بلوك/, Engine],
-  [/diagnos|scan|computer|فحص|تشخيص|كمبيوتر|سكانر/, Gauge],
-  [/suspension|align|balanc|مساعد|ترصيص|زوايا|توازن/, Wrench],
-
-  // ---- خدمات إضافية ----
-  [/polish|wax|detail|تلميع|بوليش|تنعيم/, Sparkle],
-  [/wash|clean|shampoo|غسيل|تنظيف|شامبو/, SprayBottle],
-  [/paint|body.?work|dent|دهان|بويا|سمكر|صدم/, PaintRoller],
-  [/insur|warrant|تامين|ضمان|كفاله/, ShieldCheck],
-  [/accident|emergency|rescue|first.?aid|طوارئ|حادث|اسعاف|انقاذ/, FirstAid],
-
-  // ---- الأعمّ في النهاية ----
-  [/maintenance|periodic|صيانه|دوري|خدمه شامل/, Toolbox],
-  [/mechanic|repair|ميكانيك|تصليح|اصلاح|ورشه/, Gear],
+  [/\btow(ing)?\b|winch|سحب|قطر|ونش|جر مركب/, "towing"],
+  [/batter|jump.?start|jump.?pack|boost|بطار|شحن كهرب|تشغيل المحرك/, "battery"],
+  [/tire|tyre|wheel|puncture|flat|اطار|كفر|بنشر|عجل|دولاب/, "tire"],
+  [/fuel|petrol|diesel|gasoline|وقود|بنزين|مازوت|ديزل|تعبئ/, "fuel"],
+  [/lock|unlock|keys?\b|locksmith|فتح قفل|مفتاح|مفاتيح|قفل|اقفال/, "lockout"],
+  [/polish|wax|detail|wash|clean|shampoo|غسيل|تنظيف|شامبو|تلميع|بوليش/, "car_wash"],
+  [/oil|lubric|filter|زيت|شحوم|فلتر|مصفا/, "oil"],
+  [/engine|motor\b|overheat|smoke|محرك|مكنه|بلوك|تسخين|دخان/, "engine"],
+  [/breakdown|accident|emergency|rescue|first.?aid|diagnos|scan|repair|طوارئ|حادث|اسعاف|انقاذ|عطل|تعطل|فحص|تشخيص|تصليح|اصلاح|صيانه/, "breakdown"],
 ];
 
 /**
- * يُرجع مكوّن الأيقونة — **ولا يُرجع `undefined` أبداً**: القيمة تُمرَّر مباشرةً
- * كوسم JSX، و`undefined` هناك يرمي «Element type is invalid» فتنهار الشاشة
- * كلها إلى بياض.
+ * يقبل نصّاً، أو كائن خدمة/طلب. **لا يُرجع `undefined` أبداً**: القيمة تُمرَّر
+ * مباشرةً كوسم JSX، و`undefined` هناك يرمي «Element type is invalid» فتنهار
+ * الشاشة كلها إلى بياض.
  */
-export function iconForService(name) {
-  const key = normalize(name);
-  for (const [pattern, Icon] of RULES) {
-    if (pattern.test(key)) return Icon;
+export function iconForService(input) {
+  const source = typeof input === "string" ? { serviceName: input } : input || {};
+  const category =
+    source.category ?? source.serviceCategory ?? source.metadata?.category ?? source.service?.category;
+
+  const byCategory = catalogEntry(category);
+  if (byCategory) return byCategory.icon;
+
+  const key = normalize(
+    [source.serviceName, source.nameAr, source.name, source.service?.name, category]
+      .filter(Boolean)
+      .join(" "),
+  );
+  for (const [pattern, id] of RULES) {
+    if (pattern.test(key)) return catalogEntry(id).icon;
   }
   return Wrench;
 }

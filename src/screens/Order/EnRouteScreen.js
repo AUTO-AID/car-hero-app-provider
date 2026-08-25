@@ -93,7 +93,7 @@ export default function EnRouteScreen({ navigation, route }) {
         <ErrorBanner message={actionError || error} style={s.error} />
 
         <View style={s.custRow}>
-          <IconTile Icon={iconForService(request?.serviceName)} size={52} gradient />
+          <IconTile Icon={iconForService(request)} size={52} gradient />
           <View style={s.custText}>
             <Text style={s.custName} numberOfLines={1}>
               {customerName}

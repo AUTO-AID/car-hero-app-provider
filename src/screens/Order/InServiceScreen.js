@@ -107,7 +107,7 @@ export default function InServiceScreen({ navigation, route }) {
 
       <Card style={s.card} raised>
         <ServiceRow
-          Icon={iconForService(request?.serviceName)}
+          Icon={iconForService(request)}
           title={request?.serviceName || "خدمة"}
           subtitle={`طلب ‏#${request?.shortNumber ?? "----"}`}
           size={60}
