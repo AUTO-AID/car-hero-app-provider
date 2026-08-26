@@ -29,6 +29,9 @@ const MAP = {
   "Forbidden resource": "لا تملك صلاحية تنفيذ هذا الإجراء",
   "Unauthorized": "انتهت الجلسة، يرجى تسجيل الدخول من جديد",
 
+  // خطأ خادم غير متوقّع — لا يُعرض نصّه التقني للفنّي على الطريق
+  "Internal server error": "حدث خطأ غير متوقّع، حاول مجدداً",
+
   // الطلبات — تصل من الطبقة المشتركة في وحدة orders
   "Order not found": "الطلب غير موجود",
   "You do not have permission to view this order": "هذا الطلب غير مسند إليك",

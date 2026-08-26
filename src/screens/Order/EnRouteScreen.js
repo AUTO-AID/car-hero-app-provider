@@ -6,10 +6,10 @@
 //  يفتح الفنّي «طلباتي» أو يردّ على مكالمة — والعميل يرى السيارة تتجمّد.
 // ============================================================
 
-import React, { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Pressable, StyleSheet, View } from "react-native";
 import Text from "../../components/AppText";
-import { ChatCircle, FlagCheckered, NavigationArrow, Phone } from "phosphor-react-native";
+import { ChatCircle, FlagCheckered, NavigationArrow, Phone, Path } from "phosphor-react-native";
 import {
   BottomSheet,
   FloatingBar,
@@ -28,6 +28,12 @@ import { arabicNumber } from "../../services/datetime";
 import { errorFeedback, successFeedback } from "../../services/feedback";
 import { useSession } from "../../context/SessionContext";
 import useRequestDetail from "../../hooks/useRequestDetail";
+import useTripSimulation from "../../hooks/useTripSimulation";
+import { metersBetween } from "../../services/geo";
+
+// نطاق تسجيل الوصول تلقائياً حول موقع العميل. ٨٠م توازن يتسامح مع دقّة GPS
+// في المدن (تنحرف عشرات الأمتار قرب المباني) دون تسجيل وصول مبكّر كاذب.
+const ARRIVAL_RADIUS_M = 80;
 
 export default function EnRouteScreen({ navigation, route }) {
   const { markArrived, position } = useSession();
@@ -35,6 +41,9 @@ export default function EnRouteScreen({ navigation, route }) {
 
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
+  // يمنع السياج الجغرافي من إطلاق «وصلت» مرّتين: أول قراءة داخل النطاق تكفي،
+  // وما بعدها تكرار يقذف الفنّي إلى الشاشة التالية وهو فيها.
+  const autoArrivedRef = useRef(false);
   // المسافة وزمن الوصول من محرّك التوجيه: الخادم يحسبهما بخطّ مستقيم، والفرق
   // في مدينة مزدحمة يبلغ الضعف — ورقمٌ يَعِد العميل بما لا يقع أسوأ من غيابه.
   const [routeInfo, setRouteInfo] = useState(null);
@@ -48,7 +57,7 @@ export default function EnRouteScreen({ navigation, route }) {
   const etaMinutes =
     routeInfo?.durationMin != null ? Math.max(1, Math.round(routeInfo.durationMin)) : request?.etaMinutes;
 
-  const onArrived = async () => {
+  const onArrived = useCallback(async () => {
     if (busy || !request) return;
     setBusy(true);
     setActionError("");
@@ -61,7 +70,32 @@ export default function EnRouteScreen({ navigation, route }) {
       setActionError(err?.message || "تعذّر تسجيل الوصول، حاول مجدداً");
       setBusy(false);
     }
-  };
+  }, [busy, request, markArrived, navigation]);
+
+  // محاكاة الرحلة (وضع التطوير): تقود السيارة على المسار الحقيقي إلى العميل
+  // وتدفع كل نقطة إلى الخادم، فتتحرّك عند العميل أيضاً. `simPosition` يَجُبّ
+  // موقع الجهاز ما دامت المحاكاة تعمل.
+  const { active: simActive, simPosition, start: startSim, stop: stopSim } = useTripSimulation({
+    destination: request?.location,
+    orderId: request?.id,
+    startFrom: position,
+  });
+  const effectivePosition = simPosition ?? position;
+
+  // السياج الجغرافي: أوّل قراءة تقع داخل نطاق العميل تسجّل الوصول تلقائياً،
+  // مع بقاء الزرّ اليدوي احتياطاً. يقرأ الموقع الفعّال نفسه الذي يغذّي الخريطة
+  // كي تعمل مع المحاكاة كما مع GPS الحقيقي.
+  useEffect(() => {
+    if (autoArrivedRef.current || busy || !request) return;
+    const st = request.status;
+    if (st && st !== "provider_en_route") return;
+    const meters = metersBetween(effectivePosition, request.location);
+    if (meters != null && meters <= ARRIVAL_RADIUS_M) {
+      autoArrivedRef.current = true;
+      stopSim();
+      onArrived();
+    }
+  }, [effectivePosition, request, busy, onArrived, stopSim]);
 
   return (
     // `wide`: الخريطة تملأ العرض ولا تُحصر في عمود — نفس ما يفعله تطبيق
@@ -69,10 +103,27 @@ export default function EnRouteScreen({ navigation, route }) {
     <ProviderScreen padded={false} topInset={false} bottomInset={false} wide style={s.root}>
       <TrackingMap
         height="fill"
-        origin={position}
+        origin={effectivePosition}
         destination={request?.location}
         onRouteInfo={setRouteInfo}
       />
+
+      {/* زرّ محاكاة القيادة — وضع التطوير فقط، لا أثر له في الإنتاج.
+          يُمكّن من رؤية السيارة تمشي والتحقّق من صحّة المسار وتزامن الوصول
+          دون قيادة فعلية عشرات الأمتار بالجهاز. */}
+      {__DEV__ ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={simActive ? "إيقاف محاكاة القيادة" : "محاكاة القيادة إلى العميل"}
+          onPress={() => (simActive ? stopSim() : startSim())}
+          style={[s.simBtn, simActive && s.simBtnActive]}
+        >
+          <Path size={18} weight="fill" color={simActive ? colors.onPrimary : colors.primary} />
+          <Text style={[s.simLabel, simActive && s.simLabelActive]}>
+            {simActive ? "إيقاف المحاكاة" : "محاكاة"}
+          </Text>
+        </Pressable>
+      ) : null}
 
       <FloatingBar>
         <View style={s.pill}>
@@ -179,6 +230,26 @@ export default function EnRouteScreen({ navigation, route }) {
 
 const s = StyleSheet.create({
   root: { backgroundColor: colors.mapSurface },
+
+  // زرّ المحاكاة — أعلى يمين الخريطة، بعيداً عن زرّ إعادة التمركز (أعلى اليسار)
+  simBtn: {
+    position: "absolute",
+    top: spacing.xl + spacing.lg,
+    right: spacing.md,
+    flexDirection: "row-reverse",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.primarySoft,
+    borderRadius: providerRadius.tileSm,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    ...shadow.card,
+  },
+  simBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  simLabel: { fontSize: font.size.xs, fontWeight: font.weight.bold, color: colors.primary },
+  simLabelActive: { color: colors.onPrimary },
 
   pill: {
     flexDirection: "row-reverse",

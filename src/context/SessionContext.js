@@ -372,20 +372,39 @@ export function SessionProvider({
   //  نبضة الموقع
   // ------------------------------------------------------------
 
+  // وضع المراقبة: «رحلة» (تتبّع لحظي إلى العميل) أو «حضور» (مقتصِد وأنت متصل
+  // بلا طلب) أو «مطفأ». نشتقّه نصّاً لا من كائن الطلب: الأخير يتغيّر مرجعه مع
+  // كل تحديث للرئيسية فيعيد تشغيل المراقبة بلا داعٍ؛ النصّ لا يتغيّر إلا حين
+  // يتغيّر الوضع فعلاً، وهي اللحظة الوحيدة التي نريد فيها إعادة الاشتراك
+  // بفواصل جديدة.
+  const trackingTrip = !!home.activeRequest && needsLocationTracking(home.activeRequest.status);
+  const watchMode = !home.online && !home.activeRequest ? "off" : trackingTrip ? "trip" : "presence";
+
   useEffect(() => {
     if (!provider) return undefined;
 
-    const shouldTrack = home.online || !!home.activeRequest;
-    if (!shouldTrack) {
+    if (watchMode === "off") {
       stopWatchRef.current?.();
       stopWatchRef.current = null;
       return undefined;
     }
-    if (stopWatchRef.current) return undefined; // مراقبة قائمة — لا نضاعفها
+
+    // وضع الرحلة: دقّة ملاحة وفاصل ثانية ومسافة مترين، فتتحرّك السيارة مع أدنى
+    // حركة للجوال لا بعد كل ٢٥م. وضع الحضور يبقى مقتصِداً (١٥ث/٢٥م) لأن لا طلب
+    // يستفيد من الدقّة العالية حينها، وهي أثقل شيء على البطارية.
+    const options =
+      watchMode === "trip"
+        ? { intervalSeconds: 1, distanceMeters: 2, high: true }
+        : { intervalSeconds: homeRef.current.locationIntervalSeconds, distanceMeters: 25, high: false };
 
     let cancelled = false;
     (async () => {
       if (!(await hasLocationPermission())) return;
+
+      // تبدّل الوضع يفرض إعادة اشتراك بفواصل جديدة، فنوقف القائم أولاً بدل
+      // تركه يعمل بالفواصل القديمة إلى جانب الجديد.
+      stopWatchRef.current?.();
+      stopWatchRef.current = null;
 
       const stop = await watchPosition(
         (reading) => {
@@ -403,7 +422,7 @@ export function SessionProvider({
             })
             .catch(() => {});
         },
-        { intervalSeconds: homeRef.current.locationIntervalSeconds },
+        options,
       ).catch(() => null);
 
       if (cancelled) stop?.();
@@ -413,7 +432,7 @@ export function SessionProvider({
     return () => {
       cancelled = true;
     };
-  }, [provider, home.online, home.activeRequest]);
+  }, [provider, watchMode]);
 
   // إيقاف المراقبة نهائياً عند تفكيك المزوّد — تسريب المراقبة يستنزف البطارية
   useEffect(
@@ -442,6 +461,21 @@ export function SessionProvider({
     return () => subscription.remove();
   }, [provider, loadHome]);
 
+  /**
+   * إعادة قراءة ملفّ الفنّي من `/provider-app/me`.
+   *
+   * كان يُقرأ عند الإقلاع وعند تسجيل الدخول فقط، فيبقى كل ما فيه مجمّداً على
+   * لحظة الدخول — ومنه **التقييم**: يقيّم العميلُ الفنيَّ فيُحدَّث
+   * `averageRating` على الخادم، ولا يتغيّر شيء في «حسابي» حتى يُغلق الفنّي
+   * التطبيق ويفتحه. وكذلك حالة الاعتماد إن غيّرتها الإدارة.
+   */
+  const refreshProfile = useCallback(async () => {
+    const profile = await providerApi.fetchProfile();
+    setProvider(profile);
+    await saveUser(profile);
+    return profile;
+  }, []);
+
   const value = useMemo(
     () => ({
       booting,
@@ -462,6 +496,7 @@ export function SessionProvider({
       signOut,
       setOnline,
       refreshHome: loadHome,
+      refreshProfile,
       setActiveRequest,
       setUnreadCount,
       ...requestActions,
@@ -476,6 +511,7 @@ export function SessionProvider({
       signOut,
       setOnline,
       loadHome,
+      refreshProfile,
       setActiveRequest,
       setUnreadCount,
       applyHome,
