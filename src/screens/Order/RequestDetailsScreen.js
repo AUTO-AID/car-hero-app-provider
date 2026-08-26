@@ -2,7 +2,7 @@
 //  RequestDetailsScreen  —  ٤ · تفاصيل الطلب (بعد القبول)
 // ============================================================
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import Text from "../../components/AppText";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -31,6 +31,7 @@ import { arabicNumber, formatDateTimeLabel, formatRelative } from "../../service
 import { declineBooking } from "../../services/providerApi";
 import { callNumber, canChat, canContact, openChat } from "../../services/contact";
 import { openNavigation } from "../../services/navigationLink";
+import { reverseGeocode } from "../../services/location";
 import { statusMeta } from "../../services/requestStatus";
 import { errorFeedback, successFeedback } from "../../services/feedback";
 import { useSession } from "../../context/SessionContext";
@@ -44,6 +45,10 @@ export default function RequestDetailsScreen({ navigation, route }) {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
   const [confirmDecline, setConfirmDecline] = useState(false);
+  // مسافة/زمن التوجيه الحقيقيان من محرّك الخريطة (OSRM)، وعنوان مشتقّ من
+  // الإحداثيات حين لا يرسله الخادم.
+  const [routeInfo, setRouteInfo] = useState(null);
+  const [resolvedAddress, setResolvedAddress] = useState(null);
 
   // حجز مجدول لم يحن موعده: لا توجيه ولا وصول بعد — الفعل الوحيد المتاح هو
   // الاعتذار، وعرض «بدء التوجيه» فوق موعدٍ بعد ثلاثة أيام يدعو إلى خطأ.
@@ -72,6 +77,32 @@ export default function RequestDetailsScreen({ navigation, route }) {
   const state = statusMeta(request?.status);
   const phone = request?.customer?.phone;
   const { latitude, longitude } = request?.location || {};
+
+  // المسافة الدقيقة من التوجيه الحقيقي (طريق) تتقدّم على تقدير الخادم (خطّ
+  // مستقيم)؛ نسقط إليه ما لم يصل مسار بعد.
+  const distanceKm =
+    routeInfo?.distanceKm != null ? Math.round(routeInfo.distanceKm * 10) / 10 : request?.distanceKm;
+  const etaMinutes =
+    routeInfo?.durationMin != null ? Math.max(1, Math.round(routeInfo.durationMin)) : request?.etaMinutes;
+
+  // العنوان: من الخادم إن وُجد، وإلا المشتقّ من الإحداثيات، وإلا «محدّد على
+  // الخريطة» — فالموقع معروف وإن غاب اسمه، و«غير محدّد» يوحي بعكس ذلك.
+  const serverAddress = request?.location?.address;
+  const locationText =
+    serverAddress ||
+    resolvedAddress ||
+    (Number.isFinite(latitude) && Number.isFinite(longitude) ? "موقع محدّد على الخريطة" : "غير محدّد");
+
+  useEffect(() => {
+    if (serverAddress || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+    let alive = true;
+    reverseGeocode(latitude, longitude).then((addr) => {
+      if (alive && addr) setResolvedAddress(addr);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [serverAddress, latitude, longitude]);
 
   const onStart = async () => {
     if (busy) return;
@@ -165,19 +196,24 @@ export default function RequestDetailsScreen({ navigation, route }) {
 
             {/* خريطة حقيقية لا رسم تقريبي: الفنّي يقرّر من هذه الشاشة إن كان
                 سيقبل التوجّه، والمعالم الحقيقية حول العميل تحسم القرار. */}
-            <TrackingMap height={190} origin={position} destination={request.location} />
+            <TrackingMap
+              height={230}
+              origin={position}
+              destination={request.location}
+              onRouteInfo={setRouteInfo}
+            />
 
             <Card style={s.detailCard}>
               {/* الموعد أول ما يُقرأ في الحجز: هو ما يبني عليه الفنّي يومه */}
               {isBooking ? (
                 <DetailRow label="موعد الحجز" value={formatDateTimeLabel(request.scheduledAt)} strong />
               ) : null}
-              <DetailRow label="الموقع" value={request.location?.address || "غير محدّد"} />
+              <DetailRow label="الموقع" value={locationText} />
               <DetailRow
                 label="المسافة"
                 value={
-                  request.distanceKm != null
-                    ? `${arabicNumber(request.distanceKm)} كم · ~${arabicNumber(request.etaMinutes)} دقيقة`
+                  distanceKm != null
+                    ? `${arabicNumber(distanceKm)} كم · ~${arabicNumber(etaMinutes)} دقيقة`
                     : "—"
                 }
               />

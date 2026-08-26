@@ -9,7 +9,10 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import Text from "../../components/AppText";
-import { ChatCircle, FlagCheckered, NavigationArrow, Phone, Path } from "phosphor-react-native";
+// أيقونة «المسار» تُصدَّر في phosphor-react-native باسم `PathIcon` لا `Path`
+// (تفادياً لتصادم الاسم مع `Path` في react-native-svg). استيرادها كـ`Path`
+// مباشرةً كان يعطي `undefined` فيسقط الرسم بـ«Element type is invalid».
+import { ChatCircle, FlagCheckered, NavigationArrow, Phone, PathIcon as Path } from "phosphor-react-native";
 import {
   BottomSheet,
   FloatingBar,

@@ -112,6 +112,32 @@ export async function readCurrentPosition({ high = false } = {}) {
   }
 }
 
+/**
+ * إحداثيات → عنوان مقروء. الخادم لا يخزّن عنوان الطلب نصّاً (حقل `address`
+ * يبقى فارغاً)، فتظهر «غير محدّد» رغم أن الموقع معروف على الخريطة. نشتقّه هنا
+ * من الإحداثيات بدل تركه غامضاً.
+ *
+ * محروسٌ بالإذن الممنوح سلفاً (لا يفتح نافذة نظام)، ويردّ `null` بصمت عند أي
+ * تعذّر — فالمنادي يسقط إلى بديل «موقع محدّد على الخريطة».
+ */
+export async function reverseGeocode(latitude, longitude) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  try {
+    if (!(await hasLocationPermission())) return null;
+    const [place] = await Location.reverseGeocodeAsync({ latitude, longitude });
+    if (!place) return null;
+    // أوّل الأجزاء ذات المعنى بلا تكرار (name قد يساوي street)
+    const seen = new Set();
+    const label = [place.name, place.street, place.district, place.city, place.region]
+      .filter((part) => part && !seen.has(part) && seen.add(part))
+      .slice(0, 3)
+      .join("، ");
+    return label || null;
+  } catch {
+    return null;
+  }
+}
+
 function toReading(position) {
   return {
     latitude: position?.coords?.latitude,
