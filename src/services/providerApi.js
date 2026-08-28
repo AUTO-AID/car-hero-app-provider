@@ -122,3 +122,30 @@ export function completeService(orderId, notes) {
     { auth: true },
   );
 }
+
+// ------------------------------------------------------------
+//  المحفظة — الرصيد وحركاته
+//
+//  المسار هنا `/provider/wallet` لا `/provider-app`: سطح المحفظة على الخادم
+//  مشترك بين لوحة الويب والتطبيق (نفس المتحكّم `ProviderWalletController`)،
+//  ومضاعفته تحت `/provider-app` كان سيعني منطقَ رصيد في مكانين يتباعدان.
+// ------------------------------------------------------------
+
+/**
+ * GET /provider/wallet/me — بطاقة «رصيدي» في نداء واحد:
+ * { balance, pendingBalance, currency, summary: { totalEarnings, monthlyEarnings,
+ *   pendingPayouts, transactionCount, … } }
+ */
+export function fetchWallet() {
+  return api.get("/provider/wallet/me", { auth: true });
+}
+
+/**
+ * GET /provider/wallet/transactions?page&limit → { data, total, pagination }
+ * كل حركة: { type: credit|debit, amount, referenceType, status, description,
+ *   createdAt, transactionNumber }.
+ */
+export function fetchWalletTransactions({ page = 1, limit = 20 } = {}) {
+  const query = new URLSearchParams({ page: String(page), limit: String(limit) });
+  return api.get(`/provider/wallet/transactions?${query.toString()}`, { auth: true });
+}

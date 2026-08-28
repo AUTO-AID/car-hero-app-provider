@@ -49,6 +49,7 @@ import ChatScreen from "./src/screens/Order/ChatScreen";
 import { qaState, qaRouteParams } from "./src/services/qa";
 import NotificationsScreen from "./src/screens/Account/NotificationsScreen";
 import ProfileScreen from "./src/screens/Account/ProfileScreen";
+import WalletScreen from "./src/screens/Account/WalletScreen";
 
 // شاشات الشريط السفلي: التنقّل بينها **تبديل جذر لا دفع للمكدّس**، وإلا نما
 // المكدّس بلا حدّ مع كل تنقّل بين تبويبين وصار زرّ الرجوع يمشي في التاريخ
@@ -70,6 +71,7 @@ const ROUTE_TO_STEP = {
   Chat: "chat",
   Notifications: "notifications",
   Profile: "profile",
+  Wallet: "wallet",
 };
 
 // شاشات دورة الطلب — الخروج منها يقع تلقائياً حين ينتهي الطلب من طرف آخر
@@ -463,6 +465,9 @@ function Screens({ nav, route, step, setStep, setNavStack, setRouteParams }) {
       {step === "myRequests" && <MyRequestsScreen navigation={nav} route={route} />}
       {step === "notifications" && <NotificationsScreen navigation={nav} route={route} />}
       {step === "profile" && <ProfileScreen navigation={nav} route={route} />}
+
+      {/* رصيدي — شاشة مدفوعة من «حسابي»، للقراءة فقط */}
+      {step === "wallet" && <WalletScreen navigation={nav} route={route} />}
 
       {/* شريط معتم بارتفاع شريط الحالة، يُرسم **فوق** كل المحتوى — نفس موضعه
           في جذر تطبيق العميل. بدونه يصعد النصّ خلف الساعة والبطارية عند

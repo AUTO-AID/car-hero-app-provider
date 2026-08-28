@@ -112,6 +112,32 @@ export async function readCurrentPosition({ high = false } = {}) {
   }
 }
 
+/**
+ * إحداثيات → عنوان مقروء. الخادم لا يخزّن عنوان الطلب نصّاً (حقل `address`
+ * يبقى فارغاً)، فتظهر «غير محدّد» رغم أن الموقع معروف على الخريطة. نشتقّه هنا
+ * من الإحداثيات بدل تركه غامضاً.
+ *
+ * محروسٌ بالإذن الممنوح سلفاً (لا يفتح نافذة نظام)، ويردّ `null` بصمت عند أي
+ * تعذّر — فالمنادي يسقط إلى بديل «موقع محدّد على الخريطة».
+ */
+export async function reverseGeocode(latitude, longitude) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  try {
+    if (!(await hasLocationPermission())) return null;
+    const [place] = await Location.reverseGeocodeAsync({ latitude, longitude });
+    if (!place) return null;
+    // أوّل الأجزاء ذات المعنى بلا تكرار (name قد يساوي street)
+    const seen = new Set();
+    const label = [place.name, place.street, place.district, place.city, place.region]
+      .filter((part) => part && !seen.has(part) && seen.add(part))
+      .slice(0, 3)
+      .join("، ");
+    return label || null;
+  } catch {
+    return null;
+  }
+}
+
 function toReading(position) {
   return {
     latitude: position?.coords?.latitude,
@@ -131,15 +157,24 @@ const positiveOrUndefined = (value) => (Number.isFinite(value) && value >= 0 ? v
  * مراقبة مستمرّة أثناء الطلب النشِط. تُرجع دالة إيقاف — استدعاؤها في تنظيف
  * `useEffect` هو ما يمنع بقاء المراقبة حيّة بعد إغلاق الشاشة (وهو أسرع طريق
  * لاستنزاف البطارية وإرسال مواقع لطلب انتهى).
+ *
+ * `high` يفتح وضع الملاحة: دقّة `BestForNavigation` وفواصل صغيرة فتتحرّك
+ * السيارة مع أدنى حركة للجوال لا بعد كل ٢٥م. يُشغَّل أثناء الرحلة إلى العميل
+ * فقط — لا في وضع «متصل» المجرّد — كي لا يُستنزف الـGPS بلا طلب يستفيد منه.
  */
-export async function watchPosition(onReading, { intervalSeconds = 15, distanceMeters = 25 } = {}) {
+export async function watchPosition(
+  onReading,
+  { intervalSeconds = 15, distanceMeters = 25, high = false } = {},
+) {
   await requestLocationPermission();
 
   const subscription = await Location.watchPositionAsync(
     {
-      accuracy: Location.Accuracy.High,
-      timeInterval: Math.max(5, intervalSeconds) * 1000,
-      distanceInterval: distanceMeters,
+      accuracy: high ? Location.Accuracy.BestForNavigation : Location.Accuracy.High,
+      // الأرضية ثانية واحدة لا خمس: وضع الملاحة يحتاج تحديثاً كل ثانية ليبدو
+      // التتبّع حيّاً. القيمة الأكبر تبقى محترمة لوضع الحضور المقتصِد.
+      timeInterval: Math.max(1, intervalSeconds) * 1000,
+      distanceInterval: Math.max(0, distanceMeters),
     },
     (position) => onReading(toReading(position)),
   );

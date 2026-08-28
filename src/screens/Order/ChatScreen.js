@@ -43,6 +43,7 @@ import {
 import { EmptyState, ErrorState } from "../../components/ui";
 import { colors, font, gradients, layout, radius, spacing } from "../../theme/theme";
 import { fetchMessages, startConversation } from "../../services/chatApi";
+import { fetchRequest } from "../../services/providerApi";
 import { createChatSocket, wsErrorMessage } from "../../services/realtime";
 import { useSession } from "../../context/SessionContext";
 import { callNumber } from "../../services/contact";
@@ -63,6 +64,13 @@ const QUICK_REPLIES = [
 ];
 
 const getId = (v) => v?.id || v?._id || v;
+/**
+ * معرّف Mongo صالح؟ الحارس القديم كان يكتفي بـ«ليس فارغاً»، فمرّت قيمٌ خاطئة
+ * لكن غير فارغة — أشهرها `"null"`/`"undefined"` نصّاً من حمولة إشعار مدفوع —
+ * إلى `POST /chat/conversations`، فيردّها الخادم برسالة تحقّق تقنية
+ * («participantId must be a mongo id») تظهر للفنّي حرفيّاً.
+ */
+const isObjectId = (v) => /^[a-f\d]{24}$/i.test(String(v ?? ""));
 const msgText = (m) => m?.message || m?.text || m?.body || "";
 const isMine = (m, myId) => {
   const sender = getId(m?.senderId || m?.sender || m?.userId);
@@ -109,7 +117,9 @@ export default function ChatScreen({ navigation, route }) {
    */
   const myId = provider?.id || provider?.providerId || provider?._id;
 
-  const [chatId, setChatId] = useState(params.chatId || null);
+  // معرّف محادثة غير صالح (نصّ "null" من إشعار مثلاً) لا يُستعمل مباشرةً:
+  // وإلا انضمّ المقبس إلى غرفة وهمية وحمّل الرسائل بمعرّف يرفضه الخادم.
+  const [chatId, setChatId] = useState(isObjectId(params.chatId) ? params.chatId : null);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(true);
@@ -129,10 +139,24 @@ export default function ChatScreen({ navigation, route }) {
 
   const ensureChat = useCallback(async () => {
     if (chatId) return chatId;
-    if (!customerId || !orderId) {
+    if (!isObjectId(orderId)) {
       throw new Error("لا تتوفّر بيانات كافية لفتح المحادثة");
     }
-    const created = await startConversation({ participantId: customerId, orderId });
+
+    // معرّف العميل يغيب حين تُفتح المحادثة من طلب مختصر (الطلب النشِط أو
+    // إشعار) لا يحمل سوى اسمه ورقمه — فقط `toDetail` على الخادم يُرجع
+    // `customer.id`. نجلب التفاصيل لنعرف العميل بدل إرسال معرّف ناقص يردّه
+    // الخادم برسالة تحقّق تقنية عن «mongo id».
+    let participantId = isObjectId(customerId) ? customerId : null;
+    if (!participantId) {
+      const detail = await fetchRequest(orderId).catch(() => null);
+      participantId = isObjectId(detail?.customer?.id) ? detail.customer.id : null;
+    }
+    if (!participantId) {
+      throw new Error("لا تتوفّر بيانات كافية لفتح المحادثة");
+    }
+
+    const created = await startConversation({ participantId, orderId });
     const id = getId(created?.data || created);
     setChatId(id);
     return id;

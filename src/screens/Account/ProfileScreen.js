@@ -6,17 +6,18 @@
 //  نموذجين لنفس البيانات يتسابقان — والتطبيق الميداني ليس مكان تعبئة نماذج.
 // ============================================================
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import Text from "../../components/AppText";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import { Buildings, Info, Phone, ShieldCheck, SignOut, Star, User } from "phosphor-react-native";
-import { ConfirmSheet, ErrorBanner, OutlineButton, StatusPill } from "../../components/ui";
+import { Buildings, CaretLeft, Info, Phone, ShieldCheck, SignOut, Star, User, Wallet } from "phosphor-react-native";
+import { ConfirmSheet, ErrorBanner, OutlineButton, PressableScale, StatusPill } from "../../components/ui";
 import {
   Card,
   DetailRow,
   GradientOrb,
+  IconTile,
   ProviderScreen,
   ScreenTitle,
   navClearance,
@@ -41,11 +42,18 @@ function accountState({ isApproved, isActive, accountStatus }) {
 
 export default function ProfileScreen({ navigation }) {
   const insets = useSafeAreaInsets();
-  const { provider, unreadNotifications, signOut } = useSession();
+  const { provider, unreadNotifications, signOut, refreshProfile } = useSession();
 
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  // الملفّ في الجلسة لقطةٌ من لحظة الدخول: التقييم الذي أضافه عميل بعدها،
+  // وأي تغيير في حالة الاعتماد، لا يظهران هنا أبداً حتى إعادة تشغيل التطبيق.
+  // القراءة صامتة — الشاشة تعرض القيمة المخزّنة ريثما يردّ الخادم.
+  useEffect(() => {
+    refreshProfile?.().catch(() => {});
+  }, [refreshProfile]);
 
   const name = provider?.name || provider?.businessName || "الفنّي";
   const initial = name.replace(/^م\.\s*/, "").trim().charAt(0) || "ف";
@@ -139,6 +147,25 @@ export default function ProfileScreen({ navigation }) {
             </View>
           </Card>
 
+          {/* رصيدي — المدخل الوحيد إلى المحفظة داخل التطبيق. بطاقة لا صفّاً
+              خفيفاً: الرصيد سؤال يفتحه الفنّي قصداً، فيستحق هدف لمس واضحاً. */}
+          <PressableScale
+            onPress={() => navigation?.navigate?.("Wallet")}
+            accessibilityRole="button"
+            accessibilityLabel="رصيدي"
+            accessibilityHint="يفتح رصيدك الحالي وحركات أرباحك"
+            style={s.walletPress}
+          >
+            <Card style={s.walletCard}>
+              <IconTile Icon={Wallet} size={48} gradient />
+              <View style={s.walletText}>
+                <Text style={s.walletTitle}>رصيدي</Text>
+                <Text style={s.walletSub}>صافي حسابك مع المنصّة وحركاته</Text>
+              </View>
+              <CaretLeft size={20} weight="bold" color={colors.textMuted} />
+            </Card>
+          </PressableScale>
+
           {/* الفنّي غير المعتمد يحتاج تفسيراً لا شارةً صامتة: لماذا لا تصله
               طلبات، ومن يرفع عنه هذا الحال. */}
           {state.tone !== "success" ? (
@@ -158,7 +185,7 @@ export default function ProfileScreen({ navigation }) {
             <View style={s.noteRow}>
               <Info size={20} color={colors.textMuted} />
               <Text style={s.noteText}>
-                إدارة المحفظة والأرباح والتقارير تتم عبر لوحة التحكم على الويب.
+                التقارير التفصيلية وطلبات السحب تتم عبر لوحة التحكم على الويب.
               </Text>
             </View>
           </Card>
@@ -238,6 +265,12 @@ const s = StyleSheet.create({
   card: {},
   cardInner: { paddingHorizontal: spacing.lg },
   phone: { fontSize: font.size.md, fontWeight: font.weight.bold, color: colors.textDark, writingDirection: "ltr" },
+
+  walletPress: { borderRadius: providerRadius.card },
+  walletCard: { flexDirection: "row-reverse", alignItems: "center", gap: spacing.md, padding: spacing.lg },
+  walletText: { flex: 1, minWidth: 0 },
+  walletTitle: { fontSize: font.size.body, fontWeight: font.weight.bold, color: colors.textDark, textAlign: "right" },
+  walletSub: { fontSize: font.size.sm, color: colors.textMuted, marginTop: 2, textAlign: "right" },
 
   noteCard: { padding: spacing.lg },
   warnCard: { borderColor: colors.warningBg, backgroundColor: colors.warningBg },
