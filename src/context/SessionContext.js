@@ -280,7 +280,19 @@ export function SessionProvider({
     let cancelled = false;
 
     (async () => {
-      const socket = await createProviderSocket();
+      /**
+       * هذه القناة هي **الطريق الوحيد** الذي يصل به عرض الطلب إلى تطبيق مفتوح:
+       * لا استطلاع دوري هنا، والإشعار المدفوع يوقظ الهاتف المُقفل لا الشاشة
+       * المفتوحة. فسقوطها الصامت كان يعني فنّياً ينتظر أمام تطبيق لا يصله شيء.
+       */
+      const socket = await createProviderSocket({
+        onAuthError: () => {
+          if (cancelled) return;
+          setError("انقطع استقبال الطلبات المباشر. أعد تسجيل الدخول إن تكرّر ذلك.");
+          // شبكة أمان: نقرأ الرئيسية كي لا يضيع عرضٌ وصل أثناء الانقطاع
+          loadHome().catch(() => {});
+        },
+      });
       if (cancelled || !socket) {
         closeSocket(socket);
         return;

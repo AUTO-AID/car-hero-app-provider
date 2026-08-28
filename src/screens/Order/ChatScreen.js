@@ -43,7 +43,7 @@ import {
 import { EmptyState, ErrorState } from "../../components/ui";
 import { colors, font, gradients, layout, radius, spacing } from "../../theme/theme";
 import { fetchMessages, startConversation } from "../../services/chatApi";
-import { createChatSocket } from "../../services/realtime";
+import { createChatSocket, wsErrorMessage } from "../../services/realtime";
 import { useSession } from "../../context/SessionContext";
 import { callNumber } from "../../services/contact";
 import { readCurrentPosition } from "../../services/location";
@@ -185,9 +185,9 @@ export default function ChatScreen({ navigation, route }) {
         if (!isMine(message, myIdRef.current)) socket.emit("message_read", { chatId });
         scrollDown();
       });
-      socket.on("error", (e) => setNotice(e?.message || "حدث خطأ في الاتصال بالمحادثة"));
+      socket.on("error", (e) => setNotice(wsErrorMessage(e, "حدث خطأ في الاتصال بالمحادثة")));
       // الرفض القادم من الخادم يُبثّ على `exception` لا `error` (سلوك Nest)
-      socket.on("exception", (e) => setNotice(e?.message || "تعذّر تنفيذ العملية في المحادثة"));
+      socket.on("exception", (e) => setNotice(wsErrorMessage(e, "تعذّر تنفيذ العملية في المحادثة")));
     }).catch(() => {});
 
     return () => {
@@ -446,7 +446,8 @@ const s = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  back: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  // 44 = الحدّ الأدنى لهدف اللمس (layout.touchTarget) — كان 40
+  back: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   avatar: {
     width: 40,
     height: 40,

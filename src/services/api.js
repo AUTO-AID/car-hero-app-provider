@@ -83,6 +83,20 @@ async function ensureRefreshed() {
   return refreshPromise;
 }
 
+/**
+ * تجديد الجلسة من خارج مسار الـREST — تستعمله طبقة الـsockets.
+ *
+ * المقبس لا يمرّ بـ`request()` فلا يلتقط 401 ولا يستفيد من التجديد التلقائي،
+ * ومع ذلك توكنه يُفحص عند **كل رسالة محروسة** على الخادم. صلاحية توكن الوصول
+ * خمس عشرة دقيقة، فبعدها كانت كل رسالة تُرفض بصمت والاتصال يبدو قائماً.
+ *
+ * تُعيد استعمال نفس `refreshPromise` فلا ينطلق تجديدان متزامنان حين يفشل
+ * نداء REST ومقبس معاً في اللحظة ذاتها.
+ */
+export function refreshSession() {
+  return ensureRefreshed();
+}
+
 async function doFetch(path, method, body, headers, withAuth) {
   const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
   const finalHeaders = {
