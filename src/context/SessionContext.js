@@ -19,6 +19,7 @@ import { clearSession, getUser, hasSession, saveUser } from "../services/tokenSt
 import * as providerApi from "../services/providerApi";
 import { closeSocket, createNotificationsSocket, createProviderSocket, ProviderEvents } from "../services/realtime";
 import { hasLocationPermission, readCurrentPosition, watchPosition } from "../services/location";
+import { isSimulatingTrip } from "../services/tripSimulation";
 import { clearBadge, listenToPush, presentRequestAlert, registerForPush } from "../services/push";
 import { alertFeedback } from "../services/feedback";
 import { needsLocationTracking } from "../services/requestStatus";
@@ -421,6 +422,16 @@ export function SessionProvider({
       const stop = await watchPosition(
         (reading) => {
           const active = activeRequestRef.current;
+
+          // محاكاة قيادة تعمل الآن: قراءة الجهاز تُهمَل كاملةً.
+          //
+          // الاثنتان تكتبان `providerLocation` على الطلب نفسه، فتصل العميلَ
+          // مواقع متناوبة — سيارة تتقدّم على الطريق ثم تقفز إلى مكان الجهاز
+          // الواقف ثم تعود. الكتم هنا لا في موضع الإرسال وحده: `setPosition`
+          // يغذّي الخريطة المحلية أيضاً، فتركه كان يُبقي القفز على شاشة
+          // الفنّي وإن سلمت شاشة العميل.
+          if (isSimulatingTrip()) return;
+
           // نحتفظ بالقراءة لا نرسلها فقط: خريطة «في الطريق» ترسم سيارة الفنّي
           // من موقعه الحيّ، وقراءتها من الخادم بعد رحلة ذهاب وإياب كانت
           // ستجعلها تتحرّك متأخّرة عن الواقع بثوانٍ.

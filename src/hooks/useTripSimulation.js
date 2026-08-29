@@ -15,11 +15,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { pushLocation } from "../services/providerApi";
 import { routingUrl } from "../services/mapConfig";
 import { bearing, densifyPath, toLatLng } from "../services/geo";
+import { setSimulatingTrip } from "../services/tripSimulation";
+import { DEMO_DRIVE_SPEED_KMH, demoDriveEnabled } from "../config/demoMode";
 
 /** الفاصل بين خطوات المحاكاة — قريب من فاصل نبضة حقيقية أثناء القيادة */
 const TICK_MS = 1000;
-/** تباعد نقاط المسار المكثّف؛ ~٣٠م/ثانية ≈ ١٠٨ كم/س، سرعة قيادة معقولة */
-const STEP_M = 30;
+/**
+ * تباعد نقاط المسار المكثّف = المسافة المقطوعة في الثانية، أي السرعة.
+ *
+ * كان ثلاثين متراً — ١٠٨ كم/س داخل المدينة. رقمٌ يقطع الطريق إلى العميل قبل
+ * أن يستقرّ النظر على الشاشة، ويبدو لمن يشاهد خللاً في المقياس لا قيادة.
+ * صار يُشتقّ من سرعة معلنة بالكيلومترات في الساعة (`DEMO_DRIVE_SPEED_KMH`)
+ * فيُقرأ ويُضبط بلغة يفهمها من يشاهد.
+ */
+const STEP_M = Math.max(2, Math.round((DEMO_DRIVE_SPEED_KMH * 1000) / 3600));
 /** حين تغيب نقطة بداية، نبدأ على هذا البُعد شمال العميل */
 const FALLBACK_START_M = 1500;
 
@@ -40,6 +49,20 @@ export default function useTripSimulation({ destination, orderId, startFrom }) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
+    /**
+     * رفع الكتم عن GPS الجهاز — **إلا في وضع العرض التلقائي**.
+     *
+     * `stop()` يُستدعى في لحظتين: الوصول الطبيعي (السياج الجغرافي) وتفكيك
+     * الشاشة (الانتقال إلى «وصلت» فور الوصول). كلاهما كان يرفع الكتم فوراً،
+     * فتعود نبضةُ GPS الحقيقية — وهي مثبَّتة أثناء العرض على موقع الورشة عبر
+     * DevTools ‹ Sensors — لتكتب فوق موقع الوصول على الخادم خلال ثوانٍ من
+     * الوصول: يرى العميل سيارة الفنّي تقفز إلى الورشة وهو واقف عنده فعلياً.
+     *
+     * في وضع العرض يبقى الكتم قائماً عبر بقية دورة الطلب (وصل ← قيد التنفيذ
+     * ← منتهٍ)، ويرفعه `SessionContext` وحده حين يُغلَق الطلب فعلياً — لا
+     * هذه الدالة. خارج وضع العرض (تطوير عادي) يبقى السلوك القديم: رفعٌ فوري.
+     */
+    if (!demoDriveEnabled()) setSimulatingTrip(false);
     setActive(false);
     setSimPosition(null);
   }, []);
@@ -77,6 +100,8 @@ export default function useTripSimulation({ destination, orderId, startFrom }) {
     if (path.length < 2) return;
 
     setActive(true);
+    // من هنا فصاعداً تُهمَل نبضات الجهاز حتى `stop()` — انظر `tripSimulation.js`
+    setSimulatingTrip(true);
     let i = 0;
     let prev = path[0];
     setSimPosition({ latitude: prev.lat, longitude: prev.lng });

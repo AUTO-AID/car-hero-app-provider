@@ -30,7 +30,6 @@ import { formatMoney } from "../../services/money";
 import { arabicNumber, formatDateTimeLabel, formatRelative } from "../../services/datetime";
 import { declineBooking } from "../../services/providerApi";
 import { callNumber, canChat, canContact, openChat } from "../../services/contact";
-import { openNavigation } from "../../services/navigationLink";
 import { reverseGeocode } from "../../services/location";
 import { statusMeta } from "../../services/requestStatus";
 import { errorFeedback, successFeedback } from "../../services/feedback";
@@ -111,9 +110,15 @@ export default function RequestDetailsScreen({ navigation, route }) {
     try {
       const updated = await startEnRoute(request.id);
       successFeedback();
-      // التوجيه يُفتح بعد أن يثبت الانتقال على الخادم لا قبله: فتح الخرائط ثم
-      // فشل النداء كان يترك الفنّي يقود نحو طلب لم يُسجَّل أنه في طريقه إليه.
-      openNavigation(latitude, longitude, customerName);
+      /**
+       * الانتقال إلى شاشة «في الطريق» **داخل التطبيق** — بلا فتح خرائط خارجية.
+       *
+       * كان الزرّ يقذف الفنّي إلى تطبيق الخرائط (`google.navigation:` أو
+       * `maps://`) قبل الانتقال: يخرج من التطبيق في اللحظة التي يبدأ فيها
+       * التتبّع، فيغيب عنه المسار والحالة والمحادثة وزرّ «لقد وصلت»، ويعود
+       * إليها بضغطة رجوع إن تذكّر. وشاشة «في الطريق» نفسها ترسم المسار
+       * الحقيقي إلى العميل وتُحدّث موقعه لحظياً — فلا حاجة إلى مغادرة.
+       */
       navigation?.navigate?.("EnRoute", { request: updated });
     } catch (err) {
       errorFeedback();
@@ -260,7 +265,7 @@ export default function RequestDetailsScreen({ navigation, route }) {
               disabled={busy}
               icon={<NavigationArrow size={20} weight="fill" color={colors.onPrimary} />}
               onPress={onStart}
-              accessibilityHint="يفتح تطبيق الخرائط ويبدأ إرسال موقعك للعميل"
+              accessibilityHint="يبدأ إرسال موقعك للعميل ويفتح شاشة الطريق داخل التطبيق"
             />
           )}
         </View>

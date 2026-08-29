@@ -32,14 +32,34 @@ import { errorFeedback, successFeedback } from "../../services/feedback";
 import { useSession } from "../../context/SessionContext";
 import useRequestDetail from "../../hooks/useRequestDetail";
 import useTripSimulation from "../../hooks/useTripSimulation";
+import { demoDriveEnabled } from "../../config/demoMode";
 import { metersBetween } from "../../services/geo";
 
-// نطاق تسجيل الوصول تلقائياً حول موقع العميل. ٨٠م توازن يتسامح مع دقّة GPS
-// في المدن (تنحرف عشرات الأمتار قرب المباني) دون تسجيل وصول مبكّر كاذب.
-const ARRIVAL_RADIUS_M = 80;
+/**
+ * نطاق تسجيل الوصول تلقائياً حول موقع العميل.
+ *
+ * كان ثمانين متراً، وهي مسافة تُقاس بخطّ مستقيم بينما الفنّي يسلك شارعاً
+ * ملتفّاً — فيُعلَن الوصول والسيارة ما تزال على بُعد نحو مئة متر سيراً،
+ * والعميل يقرأ إشعار «وصل الفنّي» وينظر فلا يجد أحداً. «وصلتُ» يجب أن تعني
+ * أنه عند الموقع فعلاً.
+ *
+ * عشرون متراً هي حدّ «عند الباب» عملياً. ولأن التشدّد وحده قد يمنع التسجيل
+ * على جهاز ضعيف الإشارة، يتّسع النطاق إلى دقّة القراءة نفسها حين تكون أسوأ
+ * (بسقف ٤٥م): لا معنى لاشتراط عشرين متراً من قراءةٍ تعترف بأن خطأها ثلاثون.
+ * والزرّ اليدوي يبقى المخرج في كل حال.
+ */
+const ARRIVAL_RADIUS_M = 20;
+const ARRIVAL_RADIUS_MAX_M = 45;
+
+/** نطاق الوصول لهذه القراءة بالذات — أوسع قليلاً حين تكون الدقّة رديئة */
+function arrivalRadiusFor(reading) {
+  const accuracy = Number(reading?.accuracy);
+  if (!Number.isFinite(accuracy) || accuracy <= 0) return ARRIVAL_RADIUS_M;
+  return Math.min(ARRIVAL_RADIUS_MAX_M, Math.max(ARRIVAL_RADIUS_M, accuracy));
+}
 
 export default function EnRouteScreen({ navigation, route }) {
-  const { markArrived, position } = useSession();
+  const { markArrived, position, provider } = useSession();
   const { request, error } = useRequestDetail({ route, navigation });
 
   const [busy, setBusy] = useState(false);
@@ -78,12 +98,34 @@ export default function EnRouteScreen({ navigation, route }) {
   // محاكاة الرحلة (وضع التطوير): تقود السيارة على المسار الحقيقي إلى العميل
   // وتدفع كل نقطة إلى الخادم، فتتحرّك عند العميل أيضاً. `simPosition` يَجُبّ
   // موقع الجهاز ما دامت المحاكاة تعمل.
+  //
+  // نقطة الانطلاق: موقع الجهاز، وإلا **موقع الورشة المسجَّل** (يصل مع
+  // `home.provider.location`). الارتداد إلى نقطة مفتعلة شمال العميل كان
+  // يُخرج السيارة من العدم على بُعد كيلومتر ونصف — بينما الفنّي، منطقياً،
+  // ينطلق من ورشته.
   const { active: simActive, simPosition, start: startSim, stop: stopSim } = useTripSimulation({
     destination: request?.location,
     orderId: request?.id,
-    startFrom: position,
+    startFrom: position ?? provider?.location ?? null,
   });
   const effectivePosition = simPosition ?? position;
+
+  /**
+   * وضع العرض: تنطلق المحاكاة وحدها عند فتح الشاشة، ولا يظهر لها زرّ.
+   *
+   * اللحظة صحيحة تماماً — الفنّي ضغط «بدأت التوجّه» للتوّ — والزرّ الذي كان
+   * بديلاً عنها أداةُ تطوير مكشوفة لا مكان لها في تسجيل مناقشة. يبقى الزرّ
+   * قائماً حين يُطفأ `DEMO_MODE`، فلا يفقد المطوّر ما كان يستعمله.
+   */
+  const autoDrive = demoDriveEnabled();
+  useEffect(() => {
+    if (!autoDrive || !request?.id || !request?.location) return undefined;
+    if (request.status && request.status !== "provider_en_route") return undefined;
+    startSim();
+    // الإيقاف عند الخروج من الشاشة يتكفّل به `useTripSimulation` نفسه
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoDrive, request?.id, request?.status]);
 
   // السياج الجغرافي: أوّل قراءة تقع داخل نطاق العميل تسجّل الوصول تلقائياً،
   // مع بقاء الزرّ اليدوي احتياطاً. يقرأ الموقع الفعّال نفسه الذي يغذّي الخريطة
@@ -93,7 +135,7 @@ export default function EnRouteScreen({ navigation, route }) {
     const st = request.status;
     if (st && st !== "provider_en_route") return;
     const meters = metersBetween(effectivePosition, request.location);
-    if (meters != null && meters <= ARRIVAL_RADIUS_M) {
+    if (meters != null && meters <= arrivalRadiusFor(effectivePosition)) {
       autoArrivedRef.current = true;
       stopSim();
       onArrived();
@@ -113,8 +155,9 @@ export default function EnRouteScreen({ navigation, route }) {
 
       {/* زرّ محاكاة القيادة — وضع التطوير فقط، لا أثر له في الإنتاج.
           يُمكّن من رؤية السيارة تمشي والتحقّق من صحّة المسار وتزامن الوصول
-          دون قيادة فعلية عشرات الأمتار بالجهاز. */}
-      {__DEV__ ? (
+          دون قيادة فعلية عشرات الأمتار بالجهاز.
+          يختفي في وضع العرض: هناك تنطلق المحاكاة وحدها بلا زرّ يُصوَّر. */}
+      {__DEV__ && !autoDrive ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={simActive ? "إيقاف محاكاة القيادة" : "محاكاة القيادة إلى العميل"}
